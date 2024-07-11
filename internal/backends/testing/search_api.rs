@@ -906,7 +906,7 @@ fn test_matches() {
     assert_eq!(elem.bases().unwrap().count(), 1);
     assert_eq!(elem.accessible_role().unwrap(), crate::AccessibleRole::Text);
 
-    assert_eq!(root.match_descendants().match_inherits("Base").find_all().len(), 1);
+    assert_eq!(root.query_descendants().match_inherits("Base").find_all().len(), 1);
 }
 
 /*
