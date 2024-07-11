@@ -715,7 +715,7 @@ impl ItemRc {
 
     /// Visit the children of this element and call the visitor to each of them, until the visitor returns [`ControlFlow::Break`].
     /// When the visitor breaks, the function returns the value. If it doesn't break, the function returns None.
-    fn visit_descendants_internal<R>(
+    fn visit_descendants_impl<R>(
         &self,
         visitor: &mut impl FnMut(&ItemRc) -> ControlFlow<R>,
     ) -> Option<R> {
@@ -729,7 +729,7 @@ impl ItemRc {
 
             match visitor(&item_rc) {
                 ControlFlow::Continue(_) => {
-                    if let Some(x) = item_rc.visit_descendants_internal(visitor) {
+                    if let Some(x) = item_rc.visit_descendants_impl(visitor) {
                         result = Some(x);
                         return VisitChildrenResult::abort(index, 0);
                     }
@@ -759,7 +759,7 @@ impl ItemRc {
         &self,
         mut visitor: impl FnMut(&ItemRc) -> ControlFlow<R>,
     ) -> Option<R> {
-        self.visit_descendants_internal(&mut visitor)
+        self.visit_descendants_impl(&mut visitor)
     }
 }
 
