@@ -869,15 +869,15 @@ fn test_matches() {
 
     let root = app.root_element();
 
-    assert_eq!(root.match_descendants().match_inherits("Rectangle").find_all().len(), 1);
-    assert_eq!(root.match_descendants().match_inherits("Base").find_all().len(), 0);
-    assert!(root.match_descendants().match_id("App::dynamic-elem").find_first().is_none());
+    assert_eq!(root.query_descendants().match_inherits("Rectangle").find_all().len(), 1);
+    assert_eq!(root.query_descendants().match_inherits("Base").find_all().len(), 0);
+    assert!(root.query_descendants().match_id("App::dynamic-elem").find_first().is_none());
 
-    assert_eq!(root.match_descendants().match_id("App::visible-element").find_all().len(), 1);
-    assert_eq!(root.match_descendants().match_id("App::inner-element").find_all().len(), 1);
+    assert_eq!(root.query_descendants().match_id("App::visible-element").find_all().len(), 1);
+    assert_eq!(root.query_descendants().match_id("App::inner-element").find_all().len(), 1);
 
     assert_eq!(
-        root.match_descendants()
+        root.query_descendants()
             .match_id("App::visible-element")
             .match_descendants()
             .match_accessible_role(crate::AccessibleRole::Text)
@@ -890,14 +890,14 @@ fn test_matches() {
     app.set_condition(true);
 
     assert!(root
-        .match_descendants()
+        .query_descendants()
         .match_id("App::visible-element")
         .match_descendants()
         .match_accessible_role(crate::AccessibleRole::Text)
         .find_first()
         .is_none());
 
-    let elems = root.match_descendants().match_id("App::dynamic-elem").find_all();
+    let elems = root.query_descendants().match_id("App::dynamic-elem").find_all();
     assert_eq!(elems.len(), 1);
     let elem = &elems[0];
 
