@@ -314,7 +314,7 @@ impl ItemRc {
     }
 
     /// Returns true if this item is visible from the root of the item tree. Note that this will return
-    /// false for `Clip` elements, even if they are "visible".
+    /// false for `Clip` elements with the `clip` property evaluating to true.
     pub fn is_visible(&self) -> bool {
         let (clip, geometry) = self.absolute_clip_rect_and_geometry();
         let intersection = geometry.intersection(&clip).unwrap_or_default();
