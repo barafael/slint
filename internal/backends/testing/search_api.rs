@@ -908,29 +908,3 @@ fn test_matches() {
 
     assert_eq!(root.query_descendants().match_inherits("Base").find_all().len(), 1);
 }
-
-/*
-#[test]
-fn test_visibility_on_optimized_rect() {
-    crate::init_no_event_loop();
-
-    slint::slint! {
-        export component App inherits Window {
-            in property <bool> condition: true;
-            visible-element := Rectangle {
-                visible: condition;
-            }
-        }
-    }
-
-    let app = App::new().unwrap();
-
-    let root = app.root_element();
-
-    assert_eq!(root.match_children().match_id("App::visible-element").find_all().len(), 1);
-
-    app.set_condition(false);
-
-    assert_eq!(root.match_children().match_id("App::visible-element").find_all().len(), 0);
-}
-*/
