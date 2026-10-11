@@ -1124,3 +1124,39 @@ fn system_tray_uses_its_context() {
     assert_eq!(instance.invoke("open", &[url]).unwrap(), Value::Bool(true));
     assert_eq!(*opened_url.borrow(), Some("https://slint.dev".into()));
 }
+
+#[test]
+#[cfg(feature = "internal")]
+fn timer_uses_its_context() {
+    i_slint_backend_testing::init_no_event_loop();
+    use crate::{Compiler, Value};
+
+    let code = r#"
+        export component TestCase inherits Window {
+            out property <int> count;
+            Timer {
+                interval: 100ms;
+                triggered => { root.count += 1; }
+            }
+        }
+    "#;
+    let compiler = Compiler::default();
+    let result = spin_on::spin_on(compiler.build_from_source(code.into(), Default::default()));
+    assert!(!result.has_errors(), "{:?}", result.diagnostics().collect::<Vec<_>>());
+    let definition = result.component("TestCase").unwrap();
+    let ctx =
+        i_slint_core::SlintContext::new(Box::new(i_slint_backend_testing::TestingBackend::new(
+            i_slint_backend_testing::TestingBackendOptions {
+                mock_time: true,
+                ..Default::default()
+            },
+        )));
+    let instance = definition.create_with_context(ctx.clone()).unwrap();
+
+    // Drives the thread's context only.
+    i_slint_backend_testing::mock_elapsed_time(150);
+    assert_eq!(instance.get_property("count").unwrap(), Value::Number(0.));
+
+    ctx.update_timers_and_animations();
+    assert_eq!(instance.get_property("count").unwrap(), Value::Number(1.));
+}
