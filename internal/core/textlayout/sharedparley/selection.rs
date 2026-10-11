@@ -117,6 +117,9 @@ impl Layout {
         visible_band: &Range<PhysicalLength>,
     ) -> SelectionSpans {
         let mut spans = Vec::new();
+        // Lines past the cut (`max-lines`, or the height with `overflow: elide`) aren't drawn,
+        // so they get no highlight either.
+        let last_kept = self.visible_extent().map(|cut| (cut.last_paragraph, cut.last_line));
 
         for (paragraph_index, paragraph) in self.visible_paragraphs().iter().enumerate() {
             // Like the draw cull, padded by an (average) line height for ink that overhangs its
@@ -154,6 +157,9 @@ impl Layout {
             );
 
             selection.geometry_with(&paragraph.layout, |rect, line| {
+                if last_kept.is_some_and(|last_kept| (paragraph_index, line) > last_kept) {
+                    return;
+                }
                 // Snap the horizontal edges to device pixels once, here, so that the highlight
                 // rectangle and the glyph clip derived from the same span are pixel-identical.
                 let x = (rect.x0 as f32).round()..(rect.x1 as f32).round();
