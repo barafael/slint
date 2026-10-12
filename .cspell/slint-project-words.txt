@@ -282,6 +282,7 @@ GWLP
 Hani
 hdmipi
 heapless
+héllo
 hidpi
 highp
 HINSTANCE
