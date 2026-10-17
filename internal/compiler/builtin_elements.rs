@@ -1291,9 +1291,9 @@ fn build(l: &mut Loader) {
         /// A change of `text` clears the selection.
         in property <bool> text-selectable;
         /// The background color of the selection.
-        in property <color> selection-background-color; // Palette.selection-background set in apply_default_properties_from_style
+        in property <color> selection-background-color: computed; // Palette.selection-background set in apply_default_properties_from_style
         /// The foreground color of the selection.
-        in property <color> selection-foreground-color; // Palette.selection-foreground set in apply_default_properties_from_style
+        in property <color> selection-foreground-color: computed; // Palette.selection-foreground set in apply_default_properties_from_style
         /// `true` when text is selected.
         out property <bool> has-selection { BuiltinFunction.StyledTextHasSelection }
         // Private: the byte offsets of the selection. `has-selection` and the
