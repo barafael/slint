@@ -131,6 +131,10 @@ export component TestCase inherits Window {
         st-text = @markdown("Something else entirely");
     }
 
+    public function set-short-text() {
+        st-text = @markdown("hi");
+    }
+
     public function reset-text() {
         st-text = @markdown("[Select this](https://slint.dev/sel) **text**\n\nand more");
     }
@@ -217,6 +221,10 @@ assert_eq!(instance.invoke_copy_st(), "Select this text\nand mo");
 instance.invoke_select_all();
 instance.invoke_set_other_text();
 assert_eq!(instance.invoke_copy_st(), "Something else entirely");
+// A selection the new text ends before is none.
+instance.invoke_set_selection_offsets(10, 15);
+instance.invoke_set_short_text();
+assert!(!instance.get_st_has_selection());
 
 // Below the lines `max-lines` keeps, the drag reaches the end of the last kept line.
 slint_testing::mock_elapsed_time(1000);
@@ -319,6 +327,9 @@ assert(!instance.get_cut_has_selection());
 instance.invoke_select_all();
 instance.invoke_set_other_text();
 assert_eq(instance.invoke_copy_st(), slint::SharedString("Something else entirely"));
+instance.invoke_set_selection_offsets(10, 15);
+instance.invoke_set_short_text();
+assert(!instance.get_st_has_selection());
 
 // The programmatic selection API, as `TextEdit` exposes it.
 instance.invoke_reset_text();

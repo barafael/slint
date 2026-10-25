@@ -570,7 +570,7 @@ impl StyledTextItem {
 
     /// Whether text is selected, for the `has-selection` property.
     pub fn has_selection(self: Pin<&Self>) -> bool {
-        self.anchor_position_byte_offset() != self.cursor_position_byte_offset()
+        self.selection_range().is_some()
     }
 
     /// The selection as a byte range into the raw text, ordered and clamped to the text;
