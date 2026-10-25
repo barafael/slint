@@ -80,6 +80,36 @@ pub(crate) fn position_to_winit(pos: &corelib::api::WindowPosition) -> winit::dp
     }
 }
 
+/// The scale factor `SLINT_SCALE_FACTOR` sets, if any.
+fn overriding_scale_factor() -> Option<f32> {
+    static OVERRIDE: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *OVERRIDE.get_or_init(|| {
+        std::env::var("SLINT_SCALE_FACTOR")
+            .ok()
+            .and_then(|x| x.parse::<f32>().ok())
+            .filter(|f| *f > 0.)
+    })
+}
+
+/// A logical size is in Slint's logical pixels, which are winit's unless `SLINT_SCALE_FACTOR`
+/// overrides the factor: then it is converted here, at Slint's factor, so winit does not
+/// convert it at the system's. Without the override the logical size is left to winit, which
+/// knows the monitor the window lands on before Slint does.
+fn size_for_winit(size: winit::dpi::Size) -> winit::dpi::Size {
+    match overriding_scale_factor() {
+        Some(sf) => size.to_physical::<u32>(sf as f64).into(),
+        None => size,
+    }
+}
+
+/// See [`size_for_winit`].
+fn position_for_winit(position: winit::dpi::Position) -> winit::dpi::Position {
+    match overriding_scale_factor() {
+        Some(sf) => position.to_physical::<i32>(sf as f64).into(),
+        None => position,
+    }
+}
+
 fn window_size_to_winit(size: &corelib::api::WindowSize) -> winit::dpi::Size {
     match size {
         corelib::api::WindowSize::Logical(size) => {
@@ -170,6 +200,9 @@ fn apply_scale_factor_to_logical_sizes_in_attributes(
     };
 
     fixup(&mut attributes.inner_size);
+    if let Some(winit::dpi::Position::Logical(position)) = attributes.position {
+        attributes.position = Some(position.to_physical::<i32>(scale_factor).into());
+    }
     fixup(&mut attributes.min_inner_size);
     fixup(&mut attributes.max_inner_size);
     fixup(&mut attributes.resize_increments);
@@ -594,16 +627,35 @@ impl WinitWindowAdapter {
             }
         }
 
+        if let Some(window_item) = WindowInner::from_pub(self.window()).window_item()
+            && let Some(icon) = icon_to_winit(
+                window_item.as_pin_ref().icon(),
+                i_slint_core::lengths::LogicalSize::new(64., 64.)
+                    * ScaleFactor::new(self.window().scale_factor()),
+            )
+        {
+            window_attributes.window_icon = Some(icon);
+        }
+
+        #[cfg(all(target_os = "linux", any(feature = "wayland", feature = "x11")))]
+        {
+            use winit::platform::startup_notify::{
+                EventLoopExtStartupNotify, WindowAttributesExtStartupNotify,
+                reset_activation_token_env,
+            };
+            if let Some(token) = active_event_loop.read_token_from_env() {
+                window_attributes = window_attributes.with_activation_token(token);
+            }
+            reset_activation_token_env();
+        }
+
         // Never show the window right away, as we
         //  a) need to compute the correct size based on the scale factor before it's shown on the screen (handled by set_visible)
         //  b) need to create the accesskit adapter before it's shown on the screen, as required by accesskit.
         let show_after_creation = std::mem::replace(&mut window_attributes.visible, false);
         let resizable = window_attributes.resizable;
 
-        let overriding_scale_factor = std::env::var("SLINT_SCALE_FACTOR")
-            .ok()
-            .and_then(|x| x.parse::<f32>().ok())
-            .filter(|f| *f > 0.);
+        let overriding_scale_factor = overriding_scale_factor();
 
         if let Some(sf) = overriding_scale_factor {
             apply_scale_factor_to_logical_sizes_in_attributes(&mut window_attributes, sf as f64)
@@ -982,6 +1034,7 @@ impl WinitWindowAdapter {
         match &*self.winit_window_or_none.borrow() {
             WinitWindowOrNone::HasWindow { window, .. } => {
                 self.physical_size_before_scale_factor.set(None);
+                let size = size_for_winit(size);
                 if let Some(size) = window.request_inner_size(size) {
                     // On wayland we might not get a WindowEvent::Resized, so resize the EGL surface right away.
                     self.resize_event(size)?;
@@ -1882,7 +1935,9 @@ impl WindowAdapter for WinitWindowAdapter {
     fn set_position(&self, position: corelib::api::WindowPosition) {
         let winit_pos = position_to_winit(&position);
         match &*self.winit_window_or_none.borrow() {
-            WinitWindowOrNone::HasWindow { window, .. } => window.set_outer_position(winit_pos),
+            WinitWindowOrNone::HasWindow { window, .. } => {
+                window.set_outer_position(position_for_winit(winit_pos))
+            }
             WinitWindowOrNone::None(attributes) => {
                 attributes.borrow_mut().position = Some(winit_pos);
             }
@@ -2183,8 +2238,8 @@ impl WindowAdapterInternal for WinitWindowAdapter {
                 | _ => winit::window::ImePurpose::Normal,
             });
             winit_window.set_ime_cursor_area(
-                position_to_winit(&props.cursor_rect_origin.into()),
-                window_size_to_winit(&props.cursor_rect_size.into()),
+                position_for_winit(position_to_winit(&props.cursor_rect_origin.into())),
+                size_for_winit(window_size_to_winit(&props.cursor_rect_size.into())),
             );
         }
 
