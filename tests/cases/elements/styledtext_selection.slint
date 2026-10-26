@@ -173,9 +173,11 @@ assert_eq!(cursor(), MouseCursorInner::BuiltIn(BuiltInMouseCursor::Pointer));
 // Dragging from the link selects instead of following it; `copy()` is the raw text.
 pressed(2.0, 460.0);
 moved(395.0, 460.0);
+assert_eq!(cursor(), MouseCursorInner::BuiltIn(BuiltInMouseCursor::Text));
 assert!(instance.get_st_has_selection());
 assert_eq!(instance.invoke_copy_st(), "Select this text");
 released(395.0, 460.0);
+assert_eq!(cursor(), MouseCursorInner::BuiltIn(BuiltInMouseCursor::Text));
 assert_eq!(instance.invoke_copy_st(), "Select this text");
 assert_eq!(instance.get_clicked_link_url(), "");
 

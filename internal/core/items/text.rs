@@ -670,6 +670,7 @@ impl StyledTextItem {
                     *cursor = selectable_text_cursor(find_link(position).is_some());
                     return Some(InputEventResult::EventAccepted);
                 };
+                *cursor = selectable_text_cursor(false);
                 if let Some(offset) = offset_at(position) {
                     let styled = self.text();
                     let offset = crate::styled_text::clamp_byte_offset(&styled, offset as i32);
@@ -682,7 +683,8 @@ impl StyledTextItem {
                 }
                 Some(InputEventResult::GrabMouse)
             }
-            MouseEvent::Released { button: PointerEventButton::Left, .. } => {
+            MouseEvent::Released { position, button: PointerEventButton::Left, .. } => {
+                *cursor = selectable_text_cursor(find_link(position).is_some());
                 // A press released with nothing selected is a click, left to the link handling
                 // in `input_event`. (A Shift-click extends the selection without moving.)
                 let clicked = self.mouse_selection.take().get() == Some(SelectionUnit::Character)
