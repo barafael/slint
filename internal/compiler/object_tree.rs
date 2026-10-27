@@ -1321,6 +1321,9 @@ pub struct Element {
     /// read where the height is settled by the source: see
     /// `Element::height_is_literal` and `Element::effective_layout_info_prop`.
     pub layout_info_h_at_own_height: Option<NamedReference>,
+    /// The property holding the layout info the item itself reports, without the element's
+    /// constraints. `(horizontal, vertical)`
+    pub implicit_layout_info_prop: (Option<NamedReference>, Option<NamedReference>),
     /// Whether the effective `height` binding, on the element or a base, is a
     /// length literal that is not a percentage. Such a height can be read while
     /// computing the element's own horizontal layout info without closing a
@@ -1368,8 +1371,7 @@ pub struct Element {
     /// Also set on a root-level assignment to an inherited untyped slot (`name << ...`).
     pub slot_default: Option<SmolStr>,
 
-    /// The untyped slots this element clears with `name << { }`.
-    pub cleared_slots: Vec<SmolStr>,
+    pub empty_slot_assignments: Vec<SmolStr>,
 
     pub typed_slot_interface: Option<Rc<Component>>,
 
@@ -3766,6 +3768,11 @@ fn visit_all_named_references_in_element_dyn(
         vis(nr);
     }
     elem.borrow_mut().layout_info_h_at_own_height = at_own_height;
+    let mut implicit_layout_info = std::mem::take(&mut elem.borrow_mut().implicit_layout_info_prop);
+    for nr in [&mut implicit_layout_info.0, &mut implicit_layout_info.1].into_iter().flatten() {
+        vis(nr);
+    }
+    elem.borrow_mut().implicit_layout_info_prop = implicit_layout_info;
     let mut debug = std::mem::take(&mut elem.borrow_mut().debug);
     for d in debug.iter_mut() {
         if let Some(l) = d.layout.as_mut() {
@@ -3818,8 +3825,7 @@ fn visit_all_named_references_in_element_dyn(
     }
 }
 
-/// Returns the component of `elem`.
-pub fn remove_child_element(elem: &ElementRc, parent: &ElementRc) -> Rc<Component> {
+fn remove_child_element(elem: &ElementRc, parent: &ElementRc) -> Rc<Component> {
     let component = elem.borrow().enclosing_component.upgrade().unwrap();
     let index = parent
         .borrow()
@@ -3836,8 +3842,16 @@ pub fn remove_child_element(elem: &ElementRc, parent: &ElementRc) -> Rc<Componen
     component
 }
 
+pub fn remove_lowered_element(elem: &ElementRc, parent: &ElementRc) -> Rc<Component> {
+    let component = remove_child_element(elem, parent);
+    if let Some(slot) = elem.borrow().slot_target.clone() {
+        parent.borrow_mut().empty_slot_assignments.push(slot);
+    }
+    component
+}
+
 pub fn move_to_optimized_elements(elem: &ElementRc, parent: &ElementRc) {
-    remove_child_element(elem, parent)
+    remove_lowered_element(elem, parent)
         .optimized_elements
         .borrow_mut()
         .push(OptimizedElement { element: elem.clone(), former_parent: Rc::downgrade(parent) });
