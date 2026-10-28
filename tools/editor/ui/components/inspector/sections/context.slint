@@ -65,6 +65,16 @@ export global InspectorContext {
         return InspectorContext.has-backend-rect() && InspectorContext.element-information.type-name == "SpinBox";
     }
 
+    public pure function is-progress-selection() -> bool {
+        return InspectorContext.has-backend-rect()
+            && (InspectorContext.element-information.type-name == "ProgressIndicator"
+                || InspectorContext.element-information.type-name == "Spinner");
+    }
+
+    public pure function has-scrollbar-policy-selection() -> bool {
+        return InspectorContext.has-backend-rect() && Api.has-property("horizontal-scrollbar-policy");
+    }
+
     public pure function is-resizable-selection() -> bool {
         return InspectorContext.has-backend-rect() && Api.selection.is-resizable;
     }
@@ -91,6 +101,12 @@ export global InspectorContext {
 
     public pure function is-lineedit-selection() -> bool {
         return InspectorContext.has-backend-rect() && InspectorContext.element-information.type-name == "LineEdit";
+    }
+
+    public pure function has-placeholder-selection() -> bool {
+        return Api.selection.highlight-index >= 0
+            && (InspectorContext.element-information.type-name == "LineEdit"
+                || InspectorContext.element-information.type-name == "TextEdit");
     }
 
     public pure function is-standard-button-selection() -> bool {
@@ -238,6 +254,13 @@ export global InspectorContext {
             return false;
         }
         return InspectorContext.commit-code(property-name, value + "px");
+    }
+
+    public function commit-size-code(property-name: string, value: string) -> bool {
+        if !value.is-float() || value.to-float() <= 0 {
+            return false;
+        }
+        return InspectorContext.commit-px-code(property-name, value);
     }
 
     public pure function field-key(property-name: string) -> string {
