@@ -1188,6 +1188,14 @@ fn build(l: &mut Loader) {
         /// ```
         /// \default 1
         in property <float> line-height-factor: 1;
+        /// The language of the text, as a [BCP 47](https://www.rfc-editor.org/info/bcp47) language
+        /// tag such as `"ja"`, `"zh-Hant"` or `"en-US"`. It selects the fonts for characters that
+        /// `font-family` lacks, and the glyph forms that differ between languages: the same Han
+        /// character is drawn differently in Japanese and in Chinese. When it's empty, or isn't a
+        /// valid tag, the text has no language: the fallback fonts follow the system's settings,
+        /// and glyphs take the font's default forms.
+        /// \default ""
+        in property <string> language;
         /// The brush used for the text outline.
         /// ```slint "stroke: darkblue;" imageAlt="text stroke" width="300" height="200" needsBackground
         /// Text {
@@ -1270,6 +1278,14 @@ fn build(l: &mut Loader) {
         in property <string> default-font-family;
         /// The default font size used to render the text, when no size is specified via markup. If unset (or zero), the value falls back to the enclosing `Window`'s `default-font-size`.
         in property <length> default-font-size;
+        /// The language of the text, as a [BCP 47](https://www.rfc-editor.org/info/bcp47) language
+        /// tag such as `"ja"`, `"zh-Hant"` or `"en-US"`. It selects the fonts for characters that
+        /// the font family lacks, and the glyph forms that differ between languages: the same Han
+        /// character is drawn differently in Japanese and in Chinese. When it's empty, or isn't a
+        /// valid tag, the text has no language: the fallback fonts follow the system's settings,
+        /// and glyphs take the font's default forms.
+        /// \default ""
+        in property <string> language;
         /// The horizontal alignment of the text.
         in property <TextHorizontalAlignment> horizontal-alignment;
         /// The color used for rendering links in the text.
@@ -2456,6 +2472,14 @@ fn build(l: &mut Loader) {
         /// not the font size, and keyword or length values aren't supported.
         /// \default 1
         in property <float> line-height-factor: 1;
+        /// The language of the text, as a [BCP 47](https://www.rfc-editor.org/info/bcp47) language
+        /// tag such as `"ja"`, `"zh-Hant"` or `"en-US"`. It selects the fonts for characters that
+        /// `font-family` lacks, and the glyph forms that differ between languages: the same Han
+        /// character is drawn differently in Japanese and in Chinese. When it's empty, or isn't a
+        /// valid tag, the text has no language: the fallback fonts follow the system's settings,
+        /// and glyphs take the font's default forms.
+        /// \default ""
+        in property <string> language;
         in property <length> width: computed;
         in property <length> height: computed;
         /// The height of the page used to compute how much to scroll when the user presses page up or page down.

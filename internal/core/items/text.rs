@@ -60,6 +60,7 @@ pub struct ComplexText {
     pub overflow: Property<TextOverflow>,
     pub letter_spacing: Property<LogicalLength>,
     pub line_height_factor: Property<f32>,
+    pub language: Property<SharedString>,
     pub stroke: Property<Brush>,
     pub stroke_width: Property<LogicalLength>,
     pub stroke_style: Property<TextStrokeStyle>,
@@ -168,15 +169,23 @@ impl ItemConsts for ComplexText {
 
 impl HasFont for ComplexText {
     fn font_request(self: Pin<&Self>, self_rc: &crate::items::ItemRc) -> FontRequest {
-        crate::items::WindowItem::resolved_font_request(
-            self_rc,
-            self.font_family(),
-            self.font_weight(),
-            self.font_size(),
-            self.letter_spacing(),
-            self.font_italic(),
-        )
+        FontRequest {
+            language: language_tag(self.language()),
+            ..crate::items::WindowItem::resolved_font_request(
+                self_rc,
+                self.font_family(),
+                self.font_weight(),
+                self.font_size(),
+                self.letter_spacing(),
+                self.font_italic(),
+            )
+        }
     }
+}
+
+/// The `language` property's tag for a [`FontRequest`]: none when it is empty.
+fn language_tag(language: SharedString) -> Option<SharedString> {
+    (!language.is_empty()).then_some(language)
 }
 
 impl RenderString for ComplexText {
@@ -246,6 +255,7 @@ pub struct StyledTextItem {
     pub default_color: Property<Brush>,
     pub default_font_size: Property<LogicalLength>,
     pub default_font_family: Property<SharedString>,
+    pub language: Property<SharedString>,
     pub horizontal_alignment: Property<TextHorizontalAlignment>,
     pub vertical_alignment: Property<TextVerticalAlignment>,
     pub max_lines: Property<i32>,
@@ -512,14 +522,17 @@ impl ItemConsts for StyledTextItem {
 
 impl HasFont for StyledTextItem {
     fn font_request(self: Pin<&Self>, self_rc: &crate::items::ItemRc) -> FontRequest {
-        crate::items::WindowItem::resolved_font_request(
-            self_rc,
-            self.default_font_family(),
-            Default::default(),
-            self.default_font_size(),
-            Default::default(),
-            Default::default(),
-        )
+        FontRequest {
+            language: language_tag(self.language()),
+            ..crate::items::WindowItem::resolved_font_request(
+                self_rc,
+                self.default_font_family(),
+                Default::default(),
+                self.default_font_size(),
+                Default::default(),
+                Default::default(),
+            )
+        }
     }
 }
 
@@ -1118,6 +1131,7 @@ pub struct TextInput {
     pub input_method_hints: Property<InputMethodHints>,
     pub letter_spacing: Property<LogicalLength>,
     pub line_height_factor: Property<f32>,
+    pub language: Property<SharedString>,
     pub width: Property<LogicalLength>,
     pub height: Property<LogicalLength>,
     pub cursor_position_byte_offset: Property<i32>,
@@ -1687,14 +1701,17 @@ impl ItemConsts for TextInput {
 
 impl HasFont for TextInput {
     fn font_request(self: Pin<&Self>, self_rc: &crate::items::ItemRc) -> FontRequest {
-        crate::items::WindowItem::resolved_font_request(
-            self_rc,
-            self.font_family(),
-            self.font_weight(),
-            self.font_size(),
-            self.letter_spacing(),
-            self.font_italic(),
-        )
+        FontRequest {
+            language: language_tag(self.language()),
+            ..crate::items::WindowItem::resolved_font_request(
+                self_rc,
+                self.font_family(),
+                self.font_weight(),
+                self.font_size(),
+                self.letter_spacing(),
+                self.font_italic(),
+            )
+        }
     }
 }
 
