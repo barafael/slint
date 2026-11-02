@@ -517,3 +517,43 @@ fn the_language_tag_is_every_paragraphs_locale() {
     assert_eq!(locales(Some("not a tag")), HashSet::from([None]));
     assert_eq!(locales(None), HashSet::from([None]));
 }
+
+#[test]
+fn a_gap_follows_each_character_where_ideographs_meet_latin_letters_or_digits() {
+    let gaps = |text: &'static str| {
+        super::shaping::ideograph_gaps(text).map(|range| &text[range]).collect::<Vec<_>>()
+    };
+    assert_eq!(gaps("Rustのコードは3行"), ["t", "は", "3"]);
+    // A typed space, punctuation, full-width letters and Hangul meet without one.
+    assert_eq!(gaps("Rust の「コード」ＡＢ한글a。あᄀ"), Vec::<&str>::new());
+}
+
+#[test]
+fn japanese_and_chinese_text_sets_a_quarter_em_where_ideographs_meet_latin() {
+    const PIXEL_SIZE: f32 = 20.;
+    let width = |language: Option<&str>| {
+        let font_request = FontRequest {
+            pixel_size: Some(LogicalLength::new(PIXEL_SIZE)),
+            language: language.map(crate::SharedString::from),
+            ..Default::default()
+        };
+        let builder = super::shaping::LayoutWithoutLineBreaksBuilder::new(
+            Some(font_request),
+            None,
+            TextWrap::NoWrap,
+            None,
+            ScaleFactor::new(1.0),
+        );
+        layout_text_with_builder("aあb", builder, LayoutOptions::default()).max_width.get()
+    };
+    let untagged = width(None);
+    // Two meetings: after "a" and after "あ".
+    for language in ["ja", "zh-Hant"] {
+        assert!(
+            (width(Some(language)) - untagged - 2. * PIXEL_SIZE / 4.).abs() < 0.01,
+            "{language}: {} wide, untagged {untagged}",
+            width(Some(language)),
+        );
+    }
+    assert_eq!(width(Some("ko")), untagged);
+}
