@@ -1193,7 +1193,9 @@ fn build(l: &mut Loader) {
         /// `font-family` lacks, and the glyph forms that differ between languages: the same Han
         /// character is drawn differently in Japanese and in Chinese. When it's empty, or isn't a
         /// valid tag, the text has no language: the fallback fonts follow the system's settings,
-        /// and glyphs take the font's default forms.
+        /// and glyphs take the font's default forms. Japanese and Chinese text also sets a quarter
+        /// em between ideographs and Latin letters or digits that meet without a space, as CSS
+        /// `text-autospace` does.
         /// \default ""
         in property <string> language;
         /// The brush used for the text outline.
@@ -1283,7 +1285,9 @@ fn build(l: &mut Loader) {
         /// the font family lacks, and the glyph forms that differ between languages: the same Han
         /// character is drawn differently in Japanese and in Chinese. When it's empty, or isn't a
         /// valid tag, the text has no language: the fallback fonts follow the system's settings,
-        /// and glyphs take the font's default forms.
+        /// and glyphs take the font's default forms. Japanese and Chinese text also sets a quarter
+        /// em between ideographs and Latin letters or digits that meet without a space, as CSS
+        /// `text-autospace` does.
         /// \default ""
         in property <string> language;
         /// The horizontal alignment of the text.
@@ -2483,7 +2487,9 @@ fn build(l: &mut Loader) {
         /// `font-family` lacks, and the glyph forms that differ between languages: the same Han
         /// character is drawn differently in Japanese and in Chinese. When it's empty, or isn't a
         /// valid tag, the text has no language: the fallback fonts follow the system's settings,
-        /// and glyphs take the font's default forms.
+        /// and glyphs take the font's default forms. Japanese and Chinese text also sets a quarter
+        /// em between ideographs and Latin letters or digits that meet without a space, as CSS
+        /// `text-autospace` does.
         /// \default ""
         in property <string> language;
         in property <length> width: computed;
