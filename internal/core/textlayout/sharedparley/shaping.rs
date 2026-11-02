@@ -128,6 +128,14 @@ impl LayoutWithoutLineBreaksBuilder {
             } else {
                 parley::style::FontStyle::Normal
             }));
+            // A tag that doesn't parse sets no language, as an empty one does.
+            if let Some(language) = font_request
+                .language
+                .as_deref()
+                .and_then(|tag| parley::style::Language::parse(tag).ok())
+            {
+                builder.push_default(parley::StyleProperty::Locale(Some(language)));
+            }
         }
         builder.push_default(parley::StyleProperty::FontSize(self.pixel_size.get()));
         builder.push_default(parley::StyleProperty::WordBreak(match self.text_wrap {

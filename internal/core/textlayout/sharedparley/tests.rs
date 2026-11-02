@@ -490,3 +490,30 @@ fn test_control_glyphs() {
         .collect::<Vec<_>>();
     assert_eq!(missing_glyphs, paragraph.control_glyphs(&line));
 }
+
+#[test]
+fn the_language_tag_is_every_paragraphs_locale() {
+    let locales = |language: Option<&str>| {
+        let font_request =
+            FontRequest { language: language.map(crate::SharedString::from), ..Default::default() };
+        let builder = super::shaping::LayoutWithoutLineBreaksBuilder::new(
+            Some(font_request),
+            None,
+            TextWrap::NoWrap,
+            None,
+            ScaleFactor::new(1.0),
+        );
+        let layout = layout_text_with_builder("直 and 骨\n誤", builder, LayoutOptions::default());
+        layout
+            .paragraphs
+            .iter()
+            .flat_map(|paragraph| paragraph.layout.styles().iter().map(|style| style.locale))
+            .collect::<HashSet<_>>()
+    };
+    let parsed = |tag| parley::style::Language::parse(tag).ok();
+    assert_eq!(locales(Some("ja")), HashSet::from([parsed("ja")]));
+    // A whole tag is accepted; the layout keeps its language, script and region.
+    assert_eq!(locales(Some("ZH-hant-tw-x-private")), HashSet::from([parsed("zh-Hant-TW")]));
+    assert_eq!(locales(Some("not a tag")), HashSet::from([None]));
+    assert_eq!(locales(None), HashSet::from([None]));
+}
