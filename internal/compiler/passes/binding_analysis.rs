@@ -1540,6 +1540,8 @@ fn visit_implicit_layout_info_dependencies(
             vis(&NamedReference::new(item, SmolStr::new_static("font-size")).into(), N);
             vis(&NamedReference::new(item, SmolStr::new_static("font-weight")).into(), N);
             vis(&NamedReference::new(item, SmolStr::new_static("letter-spacing")).into(), N);
+            // The language picks the fallback fonts, whose glyphs have widths of their own.
+            vis(&NamedReference::new(item, SmolStr::new_static("language")).into(), N);
             // The line height only stretches the line boxes, so it feeds the vertical
             // layout info but can never influence the preferred width.
             if orientation == Orientation::Vertical {
@@ -1562,6 +1564,7 @@ fn visit_implicit_layout_info_dependencies(
             vis(&NamedReference::new(item, SmolStr::new_static("text")).into(), N);
             vis(&NamedReference::new(item, SmolStr::new_static("default-font-family")).into(), N);
             vis(&NamedReference::new(item, SmolStr::new_static("default-font-size")).into(), N);
+            vis(&NamedReference::new(item, SmolStr::new_static("language")).into(), N);
             // A line dropped by the limit is also excluded from the content widths, so
             // `max-lines` is a dependency of both orientations, not just the height.
             vis(&NamedReference::new(item, SmolStr::new_static("max-lines")).into(), N);

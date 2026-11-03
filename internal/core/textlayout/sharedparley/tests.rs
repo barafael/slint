@@ -490,3 +490,70 @@ fn test_control_glyphs() {
         .collect::<Vec<_>>();
     assert_eq!(missing_glyphs, paragraph.control_glyphs(&line));
 }
+
+#[test]
+fn the_language_tag_is_every_paragraphs_locale() {
+    let locales = |language: Option<&str>| {
+        let font_request =
+            FontRequest { language: language.map(crate::SharedString::from), ..Default::default() };
+        let builder = super::shaping::LayoutWithoutLineBreaksBuilder::new(
+            Some(font_request),
+            None,
+            TextWrap::NoWrap,
+            None,
+            ScaleFactor::new(1.0),
+        );
+        let layout = layout_text_with_builder("直 and 骨\n誤", builder, LayoutOptions::default());
+        layout
+            .paragraphs
+            .iter()
+            .flat_map(|paragraph| paragraph.layout.styles().iter().map(|style| style.locale))
+            .collect::<HashSet<_>>()
+    };
+    let parsed = |tag| parley::style::Language::parse(tag).ok();
+    assert_eq!(locales(Some("ja")), HashSet::from([parsed("ja")]));
+    // A whole tag is accepted; the layout keeps its language, script and region.
+    assert_eq!(locales(Some("ZH-hant-tw-x-private")), HashSet::from([parsed("zh-Hant-TW")]));
+    assert_eq!(locales(Some("not a tag")), HashSet::from([None]));
+    assert_eq!(locales(None), HashSet::from([None]));
+}
+
+#[test]
+fn a_gap_follows_each_character_where_ideographs_meet_latin_letters_or_digits() {
+    let gaps = |text: &'static str| {
+        super::shaping::ideograph_gaps(text).map(|range| &text[range]).collect::<Vec<_>>()
+    };
+    assert_eq!(gaps("Rustのコードは3行"), ["t", "は", "3"]);
+    // A typed space, punctuation, full-width letters and Hangul meet without one.
+    assert_eq!(gaps("Rust の「コード」ＡＢ한글a。あᄀ"), Vec::<&str>::new());
+}
+
+#[test]
+fn japanese_and_chinese_text_sets_a_quarter_em_where_ideographs_meet_latin() {
+    const PIXEL_SIZE: f32 = 20.;
+    let width = |language: Option<&str>| {
+        let font_request = FontRequest {
+            pixel_size: Some(LogicalLength::new(PIXEL_SIZE)),
+            language: language.map(crate::SharedString::from),
+            ..Default::default()
+        };
+        let builder = super::shaping::LayoutWithoutLineBreaksBuilder::new(
+            Some(font_request),
+            None,
+            TextWrap::NoWrap,
+            None,
+            ScaleFactor::new(1.0),
+        );
+        layout_text_with_builder("aあb", builder, LayoutOptions::default()).max_width.get()
+    };
+    let untagged = width(None);
+    // Two meetings: after "a" and after "あ".
+    for language in ["ja", "zh-Hant"] {
+        assert!(
+            (width(Some(language)) - untagged - 2. * PIXEL_SIZE / 4.).abs() < 0.01,
+            "{language}: {} wide, untagged {untagged}",
+            width(Some(language)),
+        );
+    }
+    assert_eq!(width(Some("ko")), untagged);
+}

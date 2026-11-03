@@ -1499,6 +1499,7 @@ impl WindowItem {
             },
             letter_spacing: Some(local_letter_spacing),
             italic: local_italic,
+            language: None,
         }
     }
 
