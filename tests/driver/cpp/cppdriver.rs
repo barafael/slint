@@ -35,8 +35,7 @@ pub fn test(testcase: &test_driver_lib::TestCase) -> Result<(), Box<dyn Error>> 
     compiler_config.library_paths = library_paths;
     compiler_config.style = testcase.requested_style.map(str::to_string);
     compiler_config.debug_info = true;
-    compiler_config.edition =
-        test_driver_lib::parse_slint_edition(&source)?.or(compiler_config.edition);
+    compiler_config.edition = Some(test_driver_lib::edition_or_current(&source).parse()?);
     if source.contains("//bundle-translations") {
         compiler_config.bundled_translations_path =
             Some(testcase.absolute_path.parent().unwrap().to_path_buf());
@@ -147,8 +146,7 @@ namespace slint_testing = slint::private_api::testing;
     }
 
     if compiler.is_like_clang() || compiler.is_like_gnu() {
-        compiler_command.arg("-std=c++20");
-        compiler_command.arg("-g");
+        compiler_command.args(GNU_COMMON_ARGS);
         compiler_command.arg("-Werror").arg("-Wall").arg("-Wextra");
         if let Some(prelude) = precompiled_header(&compiler) {
             compiler_command.arg("-include").arg(prelude);
@@ -212,10 +210,6 @@ namespace slint_testing = slint::private_api::testing;
     } else {
         cmd = std::process::Command::new(binary_path.deref());
     }
-    // In live-preview mode, the test case compiles its .slint file again at run time.
-    if let Some(edition) = test_driver_lib::extract_slint_edition(&source) {
-        cmd.env("SLINT_EDITION", edition);
-    }
 
     let output = cmd
         .envs(library_search_path_env_with(&slint_cpp.lib_dir))
@@ -268,6 +262,14 @@ fn precompiled_header(compiler: &cc::Tool) -> Option<&'static std::path::Path> {
     .as_deref()
 }
 
+/// The flags of the tests and of their precompiled header, which must match.
+/// ESP-IDF builds without RTTI by default.
+const GNU_COMMON_ARGS: &[&str] = if cfg!(feature = "live-preview") {
+    &["-std=c++20", "-g"]
+} else {
+    &["-std=c++20", "-g", "-fno-rtti"]
+};
+
 fn build_precompiled_header(compiler: &cc::Tool) -> Result<std::path::PathBuf, String> {
     // OUT_DIR is per-configuration, so eg the normal and live-preview builds
     // can't pick up each other's precompiled header.
@@ -291,7 +293,12 @@ fn build_precompiled_header(compiler: &cc::Tool) -> Result<std::path::PathBuf, S
         // With `-include prelude.h`, gcc loads prelude.h.gch and clang loads
         // prelude.h.pch when the file exists.
         let output = prelude.with_extension(if compiler.is_like_gnu() { "h.gch" } else { "h.pch" });
-        command.args(["-std=c++20", "-g", "-x", "c++-header"]).arg(&prelude).arg("-o").arg(&output);
+        command
+            .args(GNU_COMMON_ARGS)
+            .args(["-x", "c++-header"])
+            .arg(&prelude)
+            .arg("-o")
+            .arg(&output);
     }
     let output = command.output().map_err(|e| e.to_string())?;
     if !output.status.success() {

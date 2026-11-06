@@ -143,14 +143,7 @@ pub fn store_user_settings(name: &str, contents: &str) {
     any(feature = "preview-external", feature = "preview-engine", feature = "preview-remote"),
 ))]
 pub fn send_files_to_preview(ctx: &Context, files: &[lsp_types::Url]) {
-    let workspace_folders: Vec<_> =
-        crate::host_language_search::resolve_workspace_folders(&ctx.init_param)
-            .iter()
-            .filter_map(|folder| {
-                i_slint_compiler::source_path::SourcePath::from_url(&folder.uri).into_native_path()
-            })
-            .collect();
-    ctx.session.send_files_to_preview(0, files, &workspace_folders);
+    ctx.session.send_files_to_preview(0, files);
 }
 
 #[cfg(all(target_arch = "wasm32", any(feature = "preview-external", feature = "preview-engine")))]
@@ -1531,7 +1524,7 @@ fn parse_configuration(
                 include_paths,
                 library_paths,
                 experimental_features: experimental,
-                slint_edition: edition,
+                edition,
                 ..Default::default()
             },
             style,
@@ -1698,7 +1691,7 @@ pub mod tests {
             SlintEdition { minor: SlintEdition::current().minor + 1, ..SlintEdition::current() };
         let (overrides, warnings) = parse_configuration(vec![serde_json::json!({})]);
         assert!(warnings.is_empty(), "{warnings:?}");
-        assert_eq!(overrides.compiler.project.slint_edition, None);
+        assert_eq!(overrides.compiler.project.edition, None);
         for (value, expected) in [
             (serde_json::json!("1.18"), Some(SlintEdition { major: 1, minor: 18 })),
             (serde_json::json!("1.18.1"), Some(SlintEdition::current())),
@@ -1708,7 +1701,7 @@ pub mod tests {
             let (overrides, warnings) =
                 parse_configuration(vec![serde_json::json!({ "edition": value })]);
             assert!(warnings.is_empty(), "{warnings:?}");
-            assert_eq!(overrides.compiler.project.slint_edition, expected, "{value}");
+            assert_eq!(overrides.compiler.project.edition, expected, "{value}");
         }
     }
 
@@ -2217,11 +2210,12 @@ enum {}
                     experimental_features: Some(
                         i_slint_compiler::ExperimentalFeature::Match.into(),
                     ),
-                    slint_edition: Some(i_slint_compiler::project_file::SlintEdition::V1_19),
+                    edition: Some(i_slint_compiler::project_file::SlintEdition::V1_19),
                     ..Default::default()
                 },
                 ..Default::default()
             },
+            rust_macro_editions: Default::default(),
             format_utf8: false,
         };
 
@@ -2246,8 +2240,8 @@ enum {}
         std::fs::create_dir(&nested_root).unwrap();
         let outer_manifest = outer_root.join("slint-project.json");
         let nested_manifest = nested_root.join("slint-project.json");
-        std::fs::write(&outer_manifest, r#"{"slint-edition":"1.19"}"#).unwrap();
-        std::fs::write(&nested_manifest, r#"{"slint-edition":"1.19"}"#).unwrap();
+        std::fs::write(&outer_manifest, r#"{"edition":"1.20"}"#).unwrap();
+        std::fs::write(&nested_manifest, r#"{"edition":"1.20"}"#).unwrap();
         let source_path = nested_root.join("main.slint");
         let outer_source_path = outer_root.join("root.slint");
         let source = "export component Main inherits Window {}";
@@ -2327,7 +2321,7 @@ enum {}
             Some(LspToPreviewMessage::OpenProject { root: None })
         ));
 
-        std::fs::write(&outer_manifest, r#"{"slint-edition":"1.19"}"#).unwrap();
+        std::fs::write(&outer_manifest, r#"{"edition":"1.20"}"#).unwrap();
         spin_on::spin_on(context.session.reload_document(source_url)).unwrap();
         messages.borrow_mut().clear();
         sync_preview_project_root(&mut context.session).unwrap();
@@ -2345,7 +2339,7 @@ enum {}
         let inner = outer.join("inner");
         let inner_source_directory = inner.join("ui");
         std::fs::create_dir_all(&inner_source_directory).unwrap();
-        std::fs::write(outer.join("slint-project.json"), r#"{"slint-edition":"1.19"}"#).unwrap();
+        std::fs::write(outer.join("slint-project.json"), r#"{"edition":"1.20"}"#).unwrap();
         let outer_source = outer.join("a.slint");
         let inner_source = inner_source_directory.join("b.slint");
         let code = "export component Main inherits Window {}";

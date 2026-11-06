@@ -57,6 +57,10 @@ pub struct Document {
     pub imports: Vec<ImportedTypes>,
     pub library_exports: HashMap<String, LibraryInfo>,
 
+    /// The paths and URLs that the document's `@image-url()`s resolve to,
+    /// also the ones that aren't embedded.
+    pub referenced_file_resources: RefCell<HashSet<SourcePath>>,
+
     /// Resources to embed in the generated code.
     ///
     /// The [`crate::embedded_resources::EmbeddedResourcesIdx`] is the identifier used by code generators.
@@ -300,6 +304,7 @@ impl Document {
             imports,
             exports,
             library_exports: Default::default(),
+            referenced_file_resources: Default::default(),
             embedded_file_resources: Default::default(),
             #[cfg(feature = "bundle-translations")]
             translation_builder: None,
@@ -1537,12 +1542,17 @@ pub struct ListViewInfo {
     pub listview_width: NamedReference,
     /// The ListView's `ensure-row-visible` function, if it declares one
     pub ensure_row_visible: Option<NamedReference>,
+    /// The row's `height`. Unlike the root's geometry, a wrapper such as the
+    /// zero-size Clip of the `visible` pass doesn't replace it.
+    pub row_height: NamedReference,
 }
 
 #[derive(Debug, Clone)]
 /// If the parent element is a repeated element, this has information about the models
 pub struct RepeatedElementInfo {
     pub model: Expression,
+    /// The `for` model or `if` condition in the source
+    pub model_location: Option<SourceLocation>,
     pub model_data_id: SmolStr,
     pub index_id: SmolStr,
     /// A conditional element is just a for whose model is a boolean expression
@@ -1601,6 +1611,7 @@ impl MatchElementInfo {
         let show_when = |element: &ElementRc, condition| {
             element.borrow_mut().repeated = Some(RepeatedElementInfo {
                 model: condition,
+                model_location: None,
                 model_data_id: SmolStr::default(),
                 index_id: SmolStr::default(),
                 is_conditional_element: true,
@@ -1639,6 +1650,20 @@ impl Element {
         let g = GeometryProps::new(&r);
         r.borrow_mut().geometry_props = Some(g);
         r
+    }
+
+    /// The edition of the component that declares the element, which inlining doesn't change.
+    /// An element that a pass created takes the edition of its component.
+    pub fn edition(&self) -> Option<crate::project_file::SlintEdition> {
+        if let Some(file) = self.source_file() {
+            return file.edition();
+        }
+        let component = self.enclosing_component.upgrade()?;
+        if let Some(node) = &component.node {
+            return node.source_file.edition();
+        }
+        let root = component.root_element.try_borrow().ok()?;
+        root.source_file()?.edition()
     }
 
     pub fn from_node(
@@ -2137,6 +2162,7 @@ impl Element {
                 ensure_row_visible: declares_ensure_row_visible.then(|| {
                     NamedReference::new(parent, SmolStr::new_static("ensure-row-visible"))
                 }),
+                row_height: geometry_props.height.clone(),
             };
             // these properties are set by the ListView layouting code
             if let Some(content_height) = &lvi.content_height {
@@ -2152,6 +2178,7 @@ impl Element {
         };
         let rei = RepeatedElementInfo {
             model: Expression::Uncompiled(node.Expression().into()),
+            model_location: Some(node.Expression().to_source_location()),
             model_data_id: node
                 .DeclaredIdentifier()
                 .and_then(|n| parser::identifier_text(&n))
@@ -2180,6 +2207,7 @@ impl Element {
         diag.slint_sc_error("Conditional elements (if) are", &node);
         let rei = RepeatedElementInfo {
             model: Expression::Uncompiled(node.Expression().into()),
+            model_location: Some(node.Expression().to_source_location()),
             model_data_id: SmolStr::default(),
             index_id: SmolStr::default(),
             is_conditional_element: true,
@@ -3686,6 +3714,123 @@ pub fn visit_element_expressions(
     visit_element_expressions_excluding_repeater_model(elem, &mut vis);
 }
 
+/// Two-way bindings, and the properties that states and transitions change, come as a
+/// `PropertyReference`.
+pub fn visit_element_expressions_with_location(
+    elem: &ElementRc,
+    fallback: &SourceLocation,
+    vis: &mut impl FnMut(&Expression, &SourceLocation),
+) {
+    fn visit(
+        expr: &Expression,
+        location: &SourceLocation,
+        vis: &mut impl FnMut(&Expression, &SourceLocation),
+    ) {
+        match expr {
+            Expression::FunctionCall { source_location: Some(location), .. } => {
+                vis(expr, location);
+                expr.visit(|sub| visit(sub, location, vis));
+            }
+            Expression::SelfAssignment { lhs, rhs, node: Some(node), .. } => {
+                vis(expr, location);
+                match node.as_node().cloned().and_then(syntax_nodes::SelfAssignment::new) {
+                    Some(node) => {
+                        let (lhs_node, rhs_node) = node.Expression();
+                        visit(lhs, &lhs_node.to_source_location(), vis);
+                        visit(rhs, &rhs_node.to_source_location(), vis);
+                    }
+                    None => expr.visit(|sub| visit(sub, location, vis)),
+                }
+            }
+            Expression::Condition { condition, true_expr, false_expr, source_location } => {
+                vis(expr, location);
+                let (condition_location, true_location) = match source_location {
+                    Some(ConditionLocation::StateSelection { name, .. }) => (name, location),
+                    Some(ConditionLocation::StateChange(change)) => (location, change),
+                    _ => (location, location),
+                };
+                visit(condition, condition_location, vis);
+                visit(true_expr, true_location, vis);
+                visit(false_expr, location, vis);
+            }
+            _ => {
+                vis(expr, location);
+                expr.visit(|sub| visit(sub, location, vis));
+            }
+        }
+    }
+    let property = |nr: &NamedReference| Expression::PropertyReference(nr.clone());
+
+    let elem = elem.borrow();
+    if let Some(repeated) = &elem.repeated {
+        visit(&repeated.model, repeated.model_location.as_ref().unwrap_or(fallback), vis);
+    }
+    for (_, binding) in elem.bindings_including_synthetic() {
+        let binding = binding.borrow();
+        let location = binding.span.as_ref().unwrap_or(fallback);
+        visit(&binding.expression, location, vis);
+        for nr in binding.two_way_bindings.iter().filter_map(|twb| twb.property()) {
+            vis(&property(nr), location);
+        }
+        match &binding.animation {
+            Some(PropertyAnimation::Static(animation)) => {
+                visit_element_expressions_with_location(animation, location, vis)
+            }
+            Some(PropertyAnimation::Transition { animations, state_ref }) => {
+                visit(state_ref, location, vis);
+                for a in animations {
+                    visit_element_expressions_with_location(&a.animation, location, vis)
+                }
+            }
+            None => {}
+        }
+    }
+    for (name, callbacks) in &elem.change_callbacks {
+        let node = elem.debug.first().and_then(|debug| {
+            debug.node.PropertyChangedCallback().find(|node| {
+                parser::identifier_text(&node.DeclaredIdentifier()).is_some_and(|n| {
+                    elem.lookup_property(&n, PropertyLookupMode::ComponentLocal)
+                        .internal_or_resolved_name()
+                        == *name
+                })
+            })
+        });
+        let location = node.map(|node| {
+            let body = node
+                .CodeBlock()
+                .map(SyntaxNode::from)
+                .or_else(|| node.Expression().map(Into::into));
+            body.unwrap_or_else(|| node.into()).to_source_location()
+        });
+        for expr in callbacks.borrow().iter() {
+            visit(expr, location.as_ref().unwrap_or(fallback), vis);
+        }
+    }
+    for state in &elem.states {
+        if let Some(condition) = &state.condition {
+            let location = match &state.selection {
+                Some(ConditionLocation::StateSelection { name, .. }) => name,
+                _ => fallback,
+            };
+            visit(condition, location, vis);
+        }
+        for (nr, expr, node) in &state.property_changes {
+            let location = node.QualifiedName().to_source_location();
+            vis(&property(nr), &location);
+            visit(expr, &location, vis);
+        }
+    }
+    for transition in &elem.transitions {
+        for (nr, location, animation) in &transition.property_animations {
+            vis(&property(nr), location);
+            visit_element_expressions_with_location(animation, location, vis);
+        }
+        if let Some((location, animation)) = &transition.catch_all_property_animation {
+            visit_element_expressions_with_location(animation, location, vis);
+        }
+    }
+}
+
 pub fn visit_named_references_in_expression(
     expr: &mut Expression,
     vis: &mut impl FnMut(&mut NamedReference),
@@ -3780,6 +3925,7 @@ fn visit_all_named_references_in_element_dyn(
         if let Some(ensure_row_visible) = &mut lv.ensure_row_visible {
             vis(ensure_row_visible);
         }
+        vis(&mut lv.row_height);
     }
     elem.borrow_mut().repeated = repeated;
     let mut layout_info_prop = std::mem::take(&mut elem.borrow_mut().layout_info_prop);

@@ -212,6 +212,8 @@ pub fn lower_to_item_tree(
         type_exports: type_exports(document, &exported_roots),
         #[cfg(feature = "bundle-translations")]
         translations: state.translation_builder.map(|x| x.result()),
+        #[cfg(not(feature = "bundle-translations"))]
+        translations: None,
     };
     super::optim_passes::run_passes(&mut root);
     root
@@ -1401,7 +1403,7 @@ fn lower_repeated_component_body(
             listview_height: ctx.map_property_reference(&lv.listview_height),
             listview_width: ctx.map_property_reference(&lv.listview_width),
             prop_y: sc.mapping.map_property_reference(&geom.y, ctx.state),
-            prop_height: sc.mapping.map_property_reference(&geom.height, ctx.state),
+            prop_height: sc.mapping.map_property_reference(&lv.row_height, ctx.state),
         }
     });
 

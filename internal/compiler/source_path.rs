@@ -6,8 +6,10 @@
 //! The location of a .slint file or an asset.
 
 use smol_str::SmolStr;
+#[cfg(feature = "std")]
 use std::path::{Component, Path, PathBuf};
 
+#[cfg(feature = "std")]
 /// Where the compiler loads a .slint file or an asset from.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SourcePath {
@@ -20,6 +22,7 @@ pub enum SourcePath {
     Url(ForeignUrl),
 }
 
+#[cfg(feature = "std")]
 /// A URL that is neither a native path nor a builtin file on this host.
 ///
 /// It's never a `builtin:` URL, and it's a `file:` URL only when that isn't a native path here,
@@ -27,6 +30,7 @@ pub enum SourcePath {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, derive_more::Deref)]
 pub struct ForeignUrl(url::Url);
 
+#[cfg(feature = "std")]
 impl SourcePath {
     /// Parses a native path, or a URL such as `builtin:/…`, `https:…` or `file:…`.
     pub fn new(path: impl AsRef<Path>) -> Self {
@@ -159,8 +163,24 @@ impl SourcePath {
         let (stem, extension) = self.file_name()?.rsplit_once('.')?;
         (!stem.is_empty()).then_some(extension)
     }
+
+    /// The path of `self` from the directory `base`, starting with `..` if `self` is outside of it.
+    /// A relative `self` is taken as relative to `base`.
+    ///
+    /// Returns `None` unless both are a `File` with a common root.
+    /// Two drives on Windows have none.
+    pub fn relative_to(&self, base: &Self) -> Option<Self> {
+        let (Self::File(path), Self::File(base)) = (self, base) else { return None };
+        let path = clean_path(&base.join(path));
+        let common = path.components().zip(base.components()).take_while(|(a, b)| a == b).count();
+        (common > 0).then(|| {
+            let parents = base.components().skip(common).map(|_| Component::ParentDir);
+            Self::File(parents.chain(path.components().skip(common)).collect())
+        })
+    }
 }
 
+#[cfg(feature = "std")]
 /// Whether `path` is a URL or a path from the root on any host, such as `/a`, `\\a` or `C:/a`.
 pub fn is_absolute(path: &str) -> bool {
     let windows_root = match path.as_bytes() {
@@ -171,11 +191,13 @@ pub fn is_absolute(path: &str) -> bool {
     windows_root || parse_url(path).is_some() || Path::new(path).has_root()
 }
 
+#[cfg(feature = "std")]
 /// A single-character scheme is a Windows drive letter (`c:\\...`), i.e. a path rather than a URL.
 fn parse_url(path: &str) -> Option<url::Url> {
     url::Url::parse(path).ok().filter(|url| url.scheme().len() > 1)
 }
 
+#[cfg(feature = "std")]
 /// Removes the `.` and `..` components of `path` without looking at the file system.
 pub fn clean_path(path: &Path) -> PathBuf {
     let mut result = PathBuf::new();
@@ -198,12 +220,14 @@ pub fn clean_path(path: &Path) -> PathBuf {
     result
 }
 
+#[cfg(feature = "std")]
 impl From<url::Url> for SourcePath {
     fn from(url: url::Url) -> Self {
         Self::from_file_url(&url).unwrap_or(Self::Url(ForeignUrl(url)))
     }
 }
 
+#[cfg(feature = "std")]
 /// Written as a URL when it has one, so that another host reads a native path of this one
 /// the way it reads the same URL from the editor.
 #[cfg(feature = "serde")]
@@ -216,6 +240,7 @@ impl serde::Serialize for SourcePath {
     }
 }
 
+#[cfg(feature = "std")]
 #[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for SourcePath {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -223,12 +248,14 @@ impl<'de> serde::Deserialize<'de> for SourcePath {
     }
 }
 
+#[cfg(feature = "std")]
 impl Default for SourcePath {
     fn default() -> Self {
         Self::File(PathBuf::new())
     }
 }
 
+#[cfg(feature = "std")]
 impl std::fmt::Display for SourcePath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -236,6 +263,19 @@ impl std::fmt::Display for SourcePath {
             Self::Builtin(path) => write!(f, "builtin:/{path}"),
             Self::Url(url) => url.as_str().fmt(f),
         }
+    }
+}
+
+/// Without std, only the name of the location: the URL, or the path, that a host with std wrote.
+#[cfg(not(feature = "std"))]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize), serde(transparent))]
+pub struct SourcePath(SmolStr);
+
+#[cfg(not(feature = "std"))]
+impl core::fmt::Display for SourcePath {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -333,6 +373,28 @@ mod tests {
         }
         assert_eq!(join("ui/main.slint", "sub\\x.slint"), SourcePath::new("ui/sub/x.slint"));
         assert_eq!(join("/ui/main.slint", "\\abs\\x.slint"), SourcePath::new("/abs/x.slint"));
+    }
+
+    #[test]
+    fn relative_paths() {
+        let relative_to =
+            |path: &str, base: &str| SourcePath::new(path).relative_to(&SourcePath::new(base));
+        for (path, base, relative) in [
+            ("/a/b/c.slint", "/a", "b/c.slint"),
+            ("/a/c.slint", "/a/b", "../c.slint"),
+            ("/x/c.slint", "/a/b", "../../x/c.slint"),
+            ("/ab/c.slint", "/a", "../ab/c.slint"),
+            ("c.slint", "/a", "c.slint"),
+            ("../c.slint", "/a/b", "../c.slint"),
+        ] {
+            assert_eq!(relative_to(path, base), Some(SourcePath::new(relative)), "{path} {base}");
+        }
+        assert_eq!(relative_to("/a", "b"), None);
+        assert_eq!(relative_to("builtin:/a.slint", "/a"), None);
+        assert_eq!(relative_to("https://slint.dev/a.slint", "/a"), None);
+        assert_eq!(relative_to("/a", "https://slint.dev/"), None);
+        #[cfg(windows)]
+        assert_eq!(relative_to("D:/a.slint", "C:/a"), None);
     }
 
     /// The remote preview asks the editor for imports by the URL it derives back (#13674).

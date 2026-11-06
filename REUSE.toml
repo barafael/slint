@@ -268,6 +268,7 @@ path = [
   "editors/vscode/css/**.css",
   "editors/vscode/tests/grammar/**.slint",
 
+  "internal/compiler/tests/syntax/project-file/**.json",
   "internal/compiler/tests/syntax/slint-sc/image_2x2.png",
   "internal/compiler/tests/syntax/slint-sc/image.svg",
   "internal/core/graphics/image/testdata/**",
@@ -279,6 +280,8 @@ path = [
   "tests/screenshots/references/anyrender/**.json",
 
   "scripts/commit-template.txt",
+
+  "internal/live-preview/protocol/snapshots.txt",
 
   "tools/**.md",
   "tools/compiler/npm/package.json",
@@ -736,6 +739,7 @@ path = [
   "tools/editor/ui/assets/lucide/check.svg",
   "tools/editor/ui/assets/lucide/chevron-down.svg",
   "tools/editor/ui/assets/lucide/monitor.svg",
+  "tools/editor/ui/assets/lucide/move.svg",
   "tools/editor/ui/assets/lucide/plus.svg",
   "tools/editor/ui/assets/lucide/smartphone.svg",
   "tools/editor/ui/assets/lucide/square.svg",

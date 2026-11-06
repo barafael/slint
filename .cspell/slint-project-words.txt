@@ -6,6 +6,7 @@ actionchip
 addrs
 adipiscing
 Adressliste
+Adwaita
 aiohttp
 alignas
 alignof
@@ -600,6 +601,7 @@ segmenteditem
 semihosting
 Segoe
 serde
+serialport
 setattr
 SETFL
 Shaderiv
@@ -682,6 +684,7 @@ Tdefmt
 tempor
 termcolor
 testdata
+texel
 texels
 texteditor
 textinput
@@ -708,6 +711,7 @@ toucharea
 toupper
 trunc
 tungstenite
+Twemoji
 typedoc
 typeregister
 Tzimabazafi
@@ -729,6 +733,7 @@ unpark
 unparseable
 unpic
 Unpremul
+unpremultiplies
 unpremultiply
 unsendable
 usbc
@@ -777,6 +782,7 @@ WNDCLASS
 wordlike
 WQXGA
 writeback
+wrappable
 WRONLY
 Wtautological
 xbuild

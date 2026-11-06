@@ -7,6 +7,7 @@
 use clap::{Parser, ValueEnum};
 use i_slint_compiler::diagnostics::BuildDiagnostics;
 use i_slint_compiler::generator::OutputFormat;
+use i_slint_compiler::project_file::SlintEdition;
 use i_slint_compiler::source_path::SourcePath;
 use i_slint_compiler::*;
 use itertools::Itertools;
@@ -83,19 +84,18 @@ struct Cli {
 
     /// Specify include paths for imported .slint files or image resources.
     /// This is used for including external .slint files or image resources referenced by '@image-url'.
-    /// Wins over the include paths of the project file.
+    /// Comes before the include paths of the project file.
     #[arg(short = 'I', name = "include path", number_of_values = 1)]
     include_paths: Vec<std::path::PathBuf>,
 
     /// Define library paths in the format `<library>=<path>`.
     /// This can point to either a library directory or a .slint entry-point file.
-    /// Wins over the library paths of the project file.
+    /// Replaces the project file's library of the same name.
     #[arg(short = 'L', name = "library path", number_of_values = 1)]
     library_paths: Vec<String>,
 
-    /// Specify a .slint file or a project directory to compile.
-    /// If the path is a directory, Slint loads slint-project.json inside that directory.
-    /// It must contain a main entry specifying the .slint file to compile.
+    /// Specify a .slint file, project directory, or slint-project.json file to compile.
+    /// The project file must contain a main entry specifying the .slint file to compile.
     /// Use '-' to read from stdin.
     #[arg(name = "file")]
     path: std::path::PathBuf,
@@ -103,6 +103,11 @@ struct Cli {
     /// Set the style for the UI (e.g., 'native' or 'fluent').
     #[arg(long, name = "style name")]
     style: Option<String>,
+
+    /// Set the edition whose language behavior to use, such as '1.20'.
+    /// This wins over the edition of the project file.
+    #[arg(long, name = "edition", value_parser = SlintEdition::parse_supported)]
+    edition: Option<SlintEdition>,
 
     /// Apply a constant scale factor to embedded assets, typically for high-DPI displays.
     /// This scale factor is also applied to the window by default.
@@ -168,15 +173,25 @@ fn parse_input(
 ) {
     // The Slint SC subset rejects the flags a project file could set, so it has none.
     #[cfg(feature = "slint-sc")]
-    if args.slint_sc && args.path.is_dir() {
-        eprintln!("--slint-sc can't compile a project directory, pass its main file instead");
+    if args.slint_sc && i_slint_compiler::project_file::project_root(&args.path).is_dir() {
+        eprintln!(
+            "--slint-sc can't compile a project file or directory, pass its main file instead"
+        );
         std::process::exit(1);
     }
 
+    let input_path = SourcePath::File(args.path.clone());
+    #[cfg(feature = "typescript")]
+    let project_root = (matches!(args.format, Some(generator::OutputFormat::TypeScript))
+        && input_path.extension() == Some("slint")
+        && !args.path.is_dir())
+    .then(|| input_path.parent());
+    #[cfg(not(feature = "typescript"))]
+    let project_root = None;
     let (input, input_files) = spin_on::spin_on(i_slint_compiler::project_file::load_input(
-        &SourcePath::File(args.path.clone()),
+        &input_path,
         None,
-        None,
+        project_root,
         None,
         diag,
     ));
@@ -191,7 +206,8 @@ fn parse_input(
 fn main() -> std::io::Result<()> {
     proc_macro2::fallback::force(); // avoid a abort if panic=abort is set
     let args = Cli::parse();
-    let input_project_directory = args.path.is_dir().then(|| args.path.clone());
+    let input = i_slint_compiler::project_file::project_root(&args.path);
+    let input_project_directory = input.is_dir().then(|| input.to_path_buf());
     let mut diag = BuildDiagnostics::default();
     let (syntax_node, project_file, input_files) = parse_input(&args, &mut diag);
     //println!("{:#?}", syntax_node);
@@ -301,11 +317,27 @@ fn main() -> std::io::Result<()> {
         compiler_config.coverage = args.coverage;
     }
 
-    if let Some(project_file) = &project_file {
-        project_file.apply_to(&mut compiler_config);
-        if let Some(project_directory) = input_project_directory {
-            compiler_config.input_project_directory = Some(project_directory);
-        }
+    let command_line_overrides = i_slint_compiler::project_file::Overrides {
+        project: i_slint_compiler::project_file::ProjectFileData {
+            include_paths: (!args.include_paths.is_empty()).then(|| args.include_paths.clone()),
+            library_paths: (!args.library_paths.is_empty()).then(|| {
+                args.library_paths
+                    .iter()
+                    .filter_map(|entry| {
+                        entry.split('=').collect_tuple().map(|(k, v)| (k.into(), v.into()))
+                    })
+                    .collect()
+            }),
+            edition: args.edition,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    command_line_overrides.apply(project_file.as_ref(), &mut compiler_config);
+    if project_file.is_some()
+        && let Some(project_directory) = input_project_directory
+    {
+        compiler_config.input_project_directory = Some(project_directory);
     }
 
     compiler_config.translation_domain = args.translation_domain;
@@ -331,16 +363,6 @@ fn main() -> std::io::Result<()> {
     }
 
     compiler_config.debug_info |= format == OutputFormat::Llr;
-    if !args.include_paths.is_empty() {
-        compiler_config.include_paths = args.include_paths;
-    }
-    if !args.library_paths.is_empty() {
-        compiler_config.library_paths = args
-            .library_paths
-            .iter()
-            .filter_map(|entry| entry.split('=').collect_tuple().map(|(k, v)| (k.into(), v.into())))
-            .collect();
-    }
     if let Some(style) = args.style {
         compiler_config.style = Some(style);
     }

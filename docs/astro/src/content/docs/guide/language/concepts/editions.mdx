@@ -3,42 +3,95 @@ title: Editions
 description: Choose the Slint release whose language behavior your project uses, so that a newer Slint doesn't break it.
 ---
 
-An edition is the Slint release whose language behavior your project uses, such as `1.19`.
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import LangRefLink from '@slint/common-files/src/components/LangRefLink.astro';
+
+An edition is the Slint release whose language behavior your project uses, such as `1.20`.
+A project is an application or a library.
 
 When a Slint release changes the behavior of the language,
 the change applies only if your edition is that release or newer.
 Newer versions of Slint keep compiling your project the way your edition's release did,
 until you raise the edition.
+A library with its own [project file](../../../tooling/project-file/#libraries) keeps its edition
+in an application that uses another one.
+Each component follows the edition of the project it belongs to.
 You can use new features with any edition.
 
 ## Choosing the Edition
 
-Set `slint-edition` in the [project file](../../../tooling/project-file/) to the major and minor version of the Slint release you write your project for.
-Write it as a string, such as `"1.19"`, not as the number `1.19`.
-Use the version of Slint you build with, or an older one.
-If the edition is newer than your version of Slint, Slint refuses to compile your project.
+Choose the major and minor version of the Slint release you write your project for, such as `1.20`.
+It can be the version of Slint you build with, or an older one.
+If your edition is newer than your version of Slint, Slint refuses to compile your project.
+
+### In the Project File
+
+Set `edition` in the [project file](../../../tooling/project-file/).
+Slint tools read it when you pass the project file or its directory.
+Write it as a string, such as `"1.20"`, not as the number `1.20`:
 
 ```json
 {
-    "slint-edition": "1.19"
+    "edition": "1.20"
 }
 ```
 
-When you compile or load `.slint` files, the edition comes from the project file.
-The Rust `slint!` macro doesn't load a project file.
-Set its edition with an attribute at the start of the macro body, or the macro warns:
+### In Your Build
+
+In Rust and C++, you can also set the edition where you compile your `.slint` files.
+In Node.js and Python, set it in the project file.
+An edition set there wins over the one in the project file.
+
+<Tabs syncKey="dev-language">
+<TabItem label="Rust" icon="seti:rust">
+The `slint!` macro doesn't load a project file.
+To set its edition, add an attribute at the start of the macro body; otherwise, the macro warns:
 
 ```rust
 slint::slint! {
-    #[slint_edition = "1.19"]
+    #[edition = "1.20"]
     export component App inherits Window { }
 }
 ```
 
-:::note
-Without a project file or `#[slint_edition]`, Slint applies none of the behavior changes that depend on the edition.
-To opt in, set `slint-edition` in a project file, or `#[slint_edition]` in the `slint!` macro.
-:::
+The Slint extension for your editor and `slint-viewer` also read this attribute when you open the `.rs` file.
+
+In `build.rs`, pass the edition to <LangRefLink lang="rust-slint-build" relpath="struct.CompilerConfiguration">`CompilerConfiguration::with_edition()`</LangRefLink>:
+
+```rust
+// build.rs
+fn main() {
+    let config = slint_build::CompilerConfiguration::new().with_edition((1, 20));
+    slint_build::compile_with_config("ui/main.slint", config).unwrap();
+}
+```
+
+With `slint-interpreter`, call <LangRefLink lang="rust-slint-interpreter" relpath="struct.Compiler">`Compiler::set_edition()`</LangRefLink>.
+</TabItem>
+<TabItem label="C++" icon="seti:cpp">
+Pass `EDITION` to <LangRefLink lang="cpp" relpath="cmake-reference/slint-target-sources/">`slint_target_sources`</LangRefLink>:
+
+```cmake
+slint_target_sources(my_application ui/main.slint EDITION 1.20)
+```
+</TabItem>
+</Tabs>
+
+### On the Command Line
+
+To set the edition on the command line, pass `--edition` to `slint-compiler` or `slint-viewer`:
+
+```bash
+slint-viewer --edition 1.20 ui/main.slint
+```
+
+### Without an Edition
+
+Without an edition, Slint applies none of the behavior changes that depend on the edition.
+The compiler reports that no edition is set.
+To opt in, choose an edition as described above.
+
+### In SlintPad
 
 SlintPad and the previews in this documentation use the edition of their own release.
 To select another one in [SlintPad](https://slintpad.com/), add it to the URL, such as `?edition=1.18`.
@@ -50,13 +103,18 @@ Each section lists what a release changed, and how to update your code if the ch
 
 ### 1.19
 
-#### `if` and `for` Elements Count Toward Their Parent's Size
+#### `if` and `for` Elements Are Sized Like Other Elements
 
-A non-layout parent, such as a `Rectangle`, computes its minimum and preferred size from its children.
-Before 1.19, it ignored any child created with `if` or `for`.
-Wrapping an element in `if true:` changed the layout around it, which was a bug
-([#407](https://github.com/slint-ui/slint/issues/407)).
-With edition 1.19, a parent counts every child, however it was created.
+Before 1.19, wrapping an element in `if true:` could change the layout around it, which was a bug:
+
+- A non-layout parent, such as a `Rectangle`, computes its minimum and preferred size from its children.
+  It ignored any child created with `if` or `for`
+  ([#407](https://github.com/slint-ui/slint/issues/407)).
+- A word-wrapped `Text` with its own `width` in an `if` or `for` element was measured at the layout's width.
+  When the layout was wider, the element came out short and the next element overlapped it
+  ([#14705](https://github.com/slint-ui/slint/issues/14705)).
+
+With edition 1.19, an element created with `if` or `for` gets the same size as one written without them.
 
 In this example, both rectangles hold the same text.
 Before, the layout gave the first one a height of `0px`, as if it were empty.
@@ -82,8 +140,9 @@ export component Example inherits Window {
 If you wrote code for the old behavior, it might need these changes:
 
 - A parent now grows to fit its `if` and `for` children,
-  which can change the size of the elements around it in a layout.
-  Where the parent should keep a size of its own, give it an explicit `width` or `height`.
+  and an element holding wrapped text can grow by a line.
+  This can change the size of the elements around it in a layout.
+  Where an element should keep a size of its own, give it an explicit `width` or `height`.
 - A child that computes its size, or another property, from that parent's size now forms a binding loop,
   which the compiler reports as an error.
 

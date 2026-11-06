@@ -11,6 +11,7 @@ mod remote;
 
 use clap::Parser;
 use i_slint_compiler::ComponentSelection;
+use i_slint_compiler::project_file::SlintEdition;
 use i_slint_live_preview::live_component::poll_ready;
 use itertools::Itertools;
 use slint_interpreter::{
@@ -74,7 +75,7 @@ struct Cli {
     #[arg(short = 'L', value_name = "library=path", number_of_values = 1, action)]
     library_paths: Option<Vec<String>>,
 
-    /// The .slint file to load ('-' for stdin)
+    /// The .slint file, project directory, or slint-project.json file to load ('-' for stdin)
     #[arg(name = "path", action, required_unless_present = "remote")]
     path: Option<std::path::PathBuf>,
 
@@ -82,7 +83,7 @@ struct Cli {
         short = 'p',
         long,
         requires = "path",
-        help = "Load project settings from this directory"
+        help = "Load project settings from a directory or slint-project.json file"
     )]
     project_root: Option<std::path::PathBuf>,
 
@@ -108,6 +109,11 @@ struct Cli {
     /// The style name. Defaults to 'fluent' if not specified
     #[arg(long, value_name = "style name", action)]
     style: Option<String>,
+
+    /// The edition whose language behavior to use, such as '1.20'.
+    /// This wins over the edition of the project file.
+    #[arg(long, value_name = "edition", value_parser = SlintEdition::parse_supported)]
+    edition: Option<SlintEdition>,
 
     /// The name of the component to view. If unset, the last exported component of the file is used.
     /// If the component name is not in the .slint file , nothing will be shown
@@ -202,8 +208,13 @@ fn main() -> Result<()> {
     #[cfg(not(all(target_os = "ios", feature = "remote")))]
     let args = Cli::parse();
 
-    if args.project_root.is_some() && args.path.as_ref().is_some_and(|path| path.is_dir()) {
-        eprintln!("A project directory cannot be combined with --project-root");
+    if args.project_root.is_some()
+        && args
+            .path
+            .as_ref()
+            .is_some_and(|path| i_slint_compiler::project_file::project_root(path).is_dir())
+    {
+        eprintln!("A project file or directory cannot be combined with --project-root");
         std::process::exit(2);
     }
 
@@ -393,6 +404,9 @@ fn init_compiler(args: &Cli) -> slint_interpreter::Compiler {
     }
     if let Some(style) = &args.style {
         compiler.set_style(style.clone());
+    }
+    if let Some(edition) = args.edition {
+        compiler.set_edition((edition.major, edition.minor));
     }
 
     let cc = compiler.compiler_configuration(i_slint_core::InternalToken);

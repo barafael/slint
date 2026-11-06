@@ -33,9 +33,12 @@ def slider_track_position(
     slider: slint_testing.Element, progress: float
 ) -> slint_testing.LogicalPosition:
     track = element(slider, id="InspectorSlider::track")
+    thumb = element(slider, id="InspectorSlider::thumb")
     rect = track.absolute_rect
+    inset = thumb.size.width / 2
     return slint_testing.LogicalPosition(
-        x=rect.x + rect.width * progress, y=rect.y + rect.height / 2
+        x=rect.x + inset + (rect.width - 2 * inset) * progress,
+        y=rect.y + rect.height / 2,
     )
 
 
@@ -114,3 +117,18 @@ def wait_for_field(
     timeout: float = 5,
 ) -> None:
     expect(inspector_field(window, label, role)).to_have_value(value, timeout=timeout)
+
+
+def upward_combo_popup_position(
+    window: slint_testing.Window,
+    combo: slint_testing.Element,
+    option: slint_testing.Element,
+) -> slint_testing.LogicalPosition:
+    # The testing API reports popup descendants in popup coordinates.
+    popup = element(window, id="InspectorComboBox::popup-surface")
+    anchor = combo.absolute_rect
+    row = option.absolute_rect
+    return slint_testing.LogicalPosition(
+        x=anchor.x + row.x + row.width / 2,
+        y=anchor.y + anchor.height - popup.size.height + row.y + row.height / 2,
+    )

@@ -65,8 +65,8 @@ extern "C" {
 /// or `null` if the file doesn't exist, so that the search continues in the next include path.
 /// `optional_resource_loader` returns the bytes of an imported font file.
 /// Without it, the interpreter fetches the font from its URL.
-/// `optional_project_root` is the URL of the directory with the `slint-project.json` to apply.
-/// The interpreter reads that file through `optional_import_callback`.
+/// `optional_project_root` is the URL of a project file (`slint-project.json`) or a directory that contains one.
+/// The interpreter loads the project file through `optional_import_callback`.
 ///
 /// It compiles with the edition of its own release.
 /// Use [`compile_from_string_with_style`] to select another edition.
@@ -95,7 +95,7 @@ pub async fn compile_from_string(
 /// `optional_edition` is the edition to compile with, such as `"1.18"`.
 /// Without it, it compiles with the edition of its own release.
 /// An edition that this interpreter doesn't support is a compilation error.
-/// The `slint-edition` of a project file under `optional_project_root` takes precedence.
+/// The `edition` of a project file under `optional_project_root` takes precedence.
 #[wasm_bindgen]
 pub async fn compile_from_string_with_style(
     source: String,
@@ -115,7 +115,6 @@ pub async fn compile_from_string_with_style(
         None => SlintEdition::current(),
         Some(Ok(edition)) => edition,
         Some(Err(message)) => {
-            let message = format!("edition: {message}");
             let error =
                 diagnostic_object(&message, (0, 0), "", slint_interpreter::DiagnosticLevel::Error)?;
             return Ok(CompilationResult {
