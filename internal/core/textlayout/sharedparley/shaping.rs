@@ -134,6 +134,14 @@ impl LayoutWithoutLineBreaksBuilder {
             } else {
                 parley::style::FontStyle::Normal
             }));
+            // A tag that doesn't parse sets no language, as an empty one does.
+            if let Some(language) = font_request
+                .language
+                .as_deref()
+                .and_then(|tag| parley::style::Language::parse(tag).ok())
+            {
+                builder.push_default(parley::StyleProperty::Locale(Some(language)));
+            }
         }
         builder.push_default(parley::StyleProperty::FontSize(self.pixel_size.get()));
         builder.push_default(parley::StyleProperty::WordBreak(match self.text_wrap {
@@ -280,9 +288,68 @@ impl LayoutWithoutLineBreaksBuilder {
                 }
             }
 
+            // Japanese and Chinese set a quarter em between their characters and Latin letters
+            // or digits that meet them without a space (JLReq 3.2.6, clreq 3.2.1), as CSS
+            // `text-autospace` does. The text stays as it is: the gap is spacing after the
+            // character before the meeting.
+            if self.spaces_ideographs_apart() {
+                let letter_spacing = self
+                    .font_request
+                    .as_ref()
+                    .and_then(|font_request| font_request.letter_spacing)
+                    .map_or(0., |letter_spacing| letter_spacing.get());
+                let gap = self.pixel_size.get() / 4.;
+                for range in ideograph_gaps(text) {
+                    builder.push(parley::StyleProperty::LetterSpacing(letter_spacing + gap), range);
+                }
+            }
+
             builder.build(text)
         })
     }
+
+    /// Whether the text's language is Japanese or Chinese, which set a gap between ideographs
+    /// and Latin letters or digits.
+    fn spaces_ideographs_apart(&self) -> bool {
+        self.font_request
+            .as_ref()
+            .and_then(|font_request| font_request.language.as_deref())
+            .and_then(|tag| parley::style::Language::parse(tag).ok())
+            .is_some_and(|language| matches!(language.language(), "ja" | "zh"))
+    }
+}
+
+/// The characters that a gap follows in Japanese or Chinese text, as byte ranges into `text`:
+/// each that meets the next without a space between them, one an ideograph (Han, kana,
+/// Bopomofo) and the other a Latin-script letter or digit.
+pub(super) fn ideograph_gaps(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
+    text.char_indices().zip(text.chars().skip(1)).filter_map(|((index, before), after)| {
+        let meets = (is_ideograph(before) && is_western(after))
+            || (is_western(before) && is_ideograph(after));
+        meets.then(|| index..index + before.len_utf8())
+    })
+}
+
+/// Han characters, kana and Bopomofo, as wide as the em (half-width katakana aren't).
+fn is_ideograph(character: char) -> bool {
+    matches!(
+        character,
+        '\u{3040}'..='\u{30FF}'
+            | '\u{3100}'..='\u{312F}'
+            | '\u{31A0}'..='\u{31FF}'
+            | '\u{3400}'..='\u{4DBF}'
+            | '\u{4E00}'..='\u{9FFF}'
+            | '\u{F900}'..='\u{FAFF}'
+            | '\u{20000}'..='\u{323AF}'
+    )
+}
+
+/// Letters and digits of the scripts set in proportional "Western" type (Latin, Greek,
+/// Cyrillic and the like); not Hangul, nor the full-width forms.
+fn is_western(character: char) -> bool {
+    character.is_alphanumeric()
+        && character < '\u{2E80}'
+        && !matches!(character, '\u{1100}'..='\u{11FF}')
 }
 
 /// The line-height ratio, relative to the font size, that every shaped line gets.
