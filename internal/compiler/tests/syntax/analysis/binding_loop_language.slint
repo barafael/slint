@@ -1,0 +1,17 @@
+// Copyright © SixtyFPS GmbH <info@slint.dev>
+// SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0
+
+// The language picks the fallback fonts, whose glyphs have widths of their own, so the
+// implicit size depends on it: deriving the language from the size is a loop.
+export component SizeDependentLanguage inherits Window {
+    Text {
+        text: "直";
+        language: self.width > 100px ? "ja" : "zh";
+//                >                               <error{The binding for the property 'language' is part of a binding loop (Text.preferred-width -> Text.width -> Text.language -> Text -> Text.preferred-width)↵Compute 'language' without depending on a size or a position the layout produces}
+    }
+    StyledText {
+        text: @markdown("直");
+        language: self.height > 100px ? "ja" : "zh";
+//                >                                <error{The binding for the property 'language' is part of a binding loop (StyledText.language -> StyledText -> StyledText.preferred-height -> StyledText.height -> StyledText.language)↵Compute 'language' without depending on a size or a position the layout produces}
+    }
+}
