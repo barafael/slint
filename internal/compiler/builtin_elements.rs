@@ -1188,6 +1188,16 @@ fn build(l: &mut Loader) {
         /// ```
         /// \default 1
         in property <float> line-height-factor: 1;
+        /// The language of the text, as a [BCP 47](https://www.rfc-editor.org/info/bcp47) language
+        /// tag such as `"ja"`, `"zh-Hant"` or `"en-US"`. It selects the fonts for characters that
+        /// `font-family` lacks, and the glyph forms that differ between languages: the same Han
+        /// character is drawn differently in Japanese and in Chinese. When it's empty, or isn't a
+        /// valid tag, the text has no language: the fallback fonts follow the system's settings,
+        /// and glyphs take the font's default forms. Japanese and Chinese text also sets a quarter
+        /// em between ideographs and Latin letters or digits that meet without a space, as CSS
+        /// `text-autospace` does.
+        /// \default ""
+        in property <string> language;
         /// The brush used for the text outline.
         /// ```slint "stroke: darkblue;" imageAlt="text stroke" width="300" height="200" needsBackground
         /// Text {
@@ -1270,6 +1280,16 @@ fn build(l: &mut Loader) {
         in property <string> default-font-family;
         /// The default font size used to render the text, when no size is specified via markup. If unset (or zero), the value falls back to the enclosing `Window`'s `default-font-size`.
         in property <length> default-font-size;
+        /// The language of the text, as a [BCP 47](https://www.rfc-editor.org/info/bcp47) language
+        /// tag such as `"ja"`, `"zh-Hant"` or `"en-US"`. It selects the fonts for characters that
+        /// the font family lacks, and the glyph forms that differ between languages: the same Han
+        /// character is drawn differently in Japanese and in Chinese. When it's empty, or isn't a
+        /// valid tag, the text has no language: the fallback fonts follow the system's settings,
+        /// and glyphs take the font's default forms. Japanese and Chinese text also sets a quarter
+        /// em between ideographs and Latin letters or digits that meet without a space, as CSS
+        /// `text-autospace` does.
+        /// \default ""
+        in property <string> language;
         /// The horizontal alignment of the text.
         in property <TextHorizontalAlignment> horizontal-alignment;
         /// The color used for rendering links in the text.
@@ -1278,6 +1298,12 @@ fn build(l: &mut Loader) {
         /// Values less than or equal to zero don't limit the number of lines.
         /// \default 0
         in property <int> max-lines;
+        /// The line height as a unitless factor (or a percentage: `150%` equals `1.5`) applied to
+        /// the font's natural line height, as for `Text`: `1` keeps the natural line height,
+        /// larger values spread the lines apart, smaller values pull them together, and `0`
+        /// collapses them onto each other. Negative or non-numeric values behave like `1`.
+        /// \default 1
+        in property <float> line-height-factor: 1;
         /// The styled text rendered, using CommonMark markup with additional HTML tags for styling.
         /// \default ""
         in property <styled-text> text;
@@ -2456,6 +2482,16 @@ fn build(l: &mut Loader) {
         /// not the font size, and keyword or length values aren't supported.
         /// \default 1
         in property <float> line-height-factor: 1;
+        /// The language of the text, as a [BCP 47](https://www.rfc-editor.org/info/bcp47) language
+        /// tag such as `"ja"`, `"zh-Hant"` or `"en-US"`. It selects the fonts for characters that
+        /// `font-family` lacks, and the glyph forms that differ between languages: the same Han
+        /// character is drawn differently in Japanese and in Chinese. When it's empty, or isn't a
+        /// valid tag, the text has no language: the fallback fonts follow the system's settings,
+        /// and glyphs take the font's default forms. Japanese and Chinese text also sets a quarter
+        /// em between ideographs and Latin letters or digits that meet without a space, as CSS
+        /// `text-autospace` does.
+        /// \default ""
+        in property <string> language;
         in property <length> width: computed;
         in property <length> height: computed;
         /// The height of the page used to compute how much to scroll when the user presses page up or page down.
@@ -2488,6 +2524,8 @@ fn build(l: &mut Loader) {
         /// handle keys before `TextInput` does. Return `accept` to indicate that you've handled the event, or return
         /// `reject` to let `TextInput` handle it.
         callback key-released(event: KeyEvent) -> EventResult;
+        /// When set to `false`, the `TextInput` doesn't take focus, ignores pointer and key events (including `key-pressed` and `key-released`), and hides the text cursor.
+        /// Unlike `read-only`, it also prevents the user from selecting text.
         in property <bool> enabled: true;
         /// When set to `true`, the text is always rendered as a single line, regardless of new line separators in the text.
         in property <bool> single-line: true;
@@ -3526,8 +3564,9 @@ fn build(l: &mut Loader) {
             in property <length> anchor-width;*/
 
             @constexpr in property <bool> close-on-click;
-            /// By default, a PopupWindow closes when the user clicks. Set this to false to prevent that behavior and close it manually using the `close()` function.
-
+            /// Use this property to choose when the `PopupWindow` closes automatically.
+            /// By default, any click closes it.
+            /// With `no-auto-close`, close it by calling `close()`.
             @constexpr in property <PopupClosePolicy> close-policy;
             /// Use this read-only property to style the element that opened the popup, for example
             /// to rotate a ComboBox's arrow while the dropdown is open.

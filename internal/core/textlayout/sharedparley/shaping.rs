@@ -1,7 +1,7 @@
 // Copyright © SixtyFPS GmbH <info@slint.dev>
 // SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0
 
-// cSpell: ignore uncacheable unrepresentable
+// cSpell: ignore FFFC uncacheable unrepresentable
 
 //! From text to shaped paragraphs.
 //!
@@ -16,6 +16,17 @@ use super::*;
 /// glyphs sit a little smaller than body text, inside a translucent capsule
 /// that visually marks them as code.
 const INLINE_CODE_FONT_SCALE: f32 = 0.85;
+
+/// Room between an inline `code` run's capsule edges and its first and last glyph, as a
+/// fraction of the run's font size. The left room is an inline box before the code and the right
+/// room is spacing after its last character, so the capsule never covers its neighbors;
+/// `draw_inline_code_backgrounds` paints the capsule over it.
+pub(super) const INLINE_CODE_PADDING: f32 = 0.35;
+
+/// The character that holds the place of an inline box in a layout's text: parley requires one
+/// for each box that takes up room.
+const OBJECT_REPLACEMENT: char = '\u{FFFC}';
+const OBJECT_REPLACEMENT_LEN: usize = OBJECT_REPLACEMENT.len_utf8();
 
 std::thread_local! {
     static LAYOUT_CONTEXT: RefCell<parley::LayoutContext<Brush>> = Default::default();
@@ -131,6 +142,14 @@ impl LayoutWithoutLineBreaksBuilder {
             } else {
                 parley::style::FontStyle::Normal
             }));
+            // A tag that doesn't parse sets no language, as an empty one does.
+            if let Some(language) = font_request
+                .language
+                .as_deref()
+                .and_then(|tag| parley::style::Language::parse(tag).ok())
+            {
+                builder.push_default(parley::StyleProperty::Locale(Some(language)));
+            }
         }
         builder.push_default(parley::StyleProperty::FontSize(self.pixel_size.get()));
         builder.push_default(parley::StyleProperty::WordBreak(match self.text_wrap {
@@ -147,10 +166,10 @@ impl LayoutWithoutLineBreaksBuilder {
             },
         ));
         if self.text_wrap == TextWrap::NoWrap {
-            // Parley 0.9 removed the width parameter from `Layout::align()` and instead
-            // uses the `max_advance` set by `break_all_lines()` as the alignment container
-            // width. To allow passing `max_physical_width` to `break_all_lines` for alignment
-            // purposes without triggering actual line wrapping, we must set `TextWrapMode::NoWrap`.
+            // Parley uses the `max_advance` passed to `break_all_lines()` as the alignment
+            // container width. To allow passing `max_physical_width` to `break_all_lines` for
+            // alignment purposes without triggering actual line wrapping, we must set
+            // `TextWrapMode::NoWrap`.
             builder.push_default(parley::StyleProperty::TextWrapMode(
                 parley::style::TextWrapMode::NoWrap,
             ));
@@ -180,6 +199,7 @@ impl LayoutWithoutLineBreaksBuilder {
 
         LAYOUT_CONTEXT.with_borrow_mut(|layout_ctx| {
             let mut builder = self.ranged_builder(layout_ctx, font_context, text);
+            let mut code_ranges = alloc::vec::Vec::new();
 
             // filter empty ranges otherwise parley will panic on assert
             for span in formatting.into_iter().filter(|s| !s.range.is_empty()) {
@@ -200,6 +220,7 @@ impl LayoutWithoutLineBreaksBuilder {
                         );
                     }
                     Style::Code => {
+                        code_ranges.push(span.range.clone());
                         builder.push(
                             parley::StyleProperty::FontFamily(parley::style::FontFamily::Single(
                                 parley::style::FontFamilyName::Generic(
@@ -245,9 +266,106 @@ impl LayoutWithoutLineBreaksBuilder {
                 }
             }
 
+            // Japanese and Chinese set a quarter em between their characters and Latin letters
+            // or digits that meet them without a space (JLReq 3.2.6, clreq 3.2.1), as CSS
+            // `text-autospace` does. The text stays as it is: the gap is spacing after the
+            // character before the meeting.
+            if self.spaces_ideographs_apart() {
+                let letter_spacing = self
+                    .font_request
+                    .as_ref()
+                    .and_then(|font_request| font_request.letter_spacing)
+                    .map_or(0., |letter_spacing| letter_spacing.get());
+                let gap = self.pixel_size.get() / 4.;
+                for range in ideograph_gaps(text) {
+                    builder.push(parley::StyleProperty::LetterSpacing(letter_spacing + gap), range);
+                }
+            }
+
+            // The padding inside inline code's capsule. The left one is an inline box at the
+            // U+FFFC that `paragraph_from_text` put before the code, so it takes room without
+            // being part of the paragraph's text. The right one is spacing after the code's last
+            // character, so the capsule never ends on its neighbor.
+            let padding = self.pixel_size.get() * INLINE_CODE_FONT_SCALE * INLINE_CODE_PADDING;
+            let mut last_object = None;
+            for (id, code) in code_ranges.iter().enumerate() {
+                let Some(index) = code.start.checked_sub(OBJECT_REPLACEMENT_LEN).filter(|&index| {
+                    last_object != Some(index) && text[index..].starts_with(OBJECT_REPLACEMENT)
+                }) else {
+                    continue;
+                };
+                last_object = Some(index);
+                builder.push_inline_box(parley::InlineBox {
+                    id: id as u64,
+                    kind: parley::InlineBoxKind::InFlow,
+                    index,
+                    width: padding,
+                    height: 0.,
+                    baseline: None,
+                    vertical_align: parley::VerticalAlign::BASELINE,
+                });
+            }
+            let letter_spacing = self
+                .font_request
+                .as_ref()
+                .and_then(|font_request| font_request.letter_spacing)
+                .map_or(0., |letter_spacing| letter_spacing.get());
+            for code in &code_ranges {
+                if let Some(last) = text[code.clone()].char_indices().next_back() {
+                    let start = code.start + last.0;
+                    builder.push(
+                        parley::StyleProperty::LetterSpacing(letter_spacing + padding),
+                        start..start + last.1.len_utf8(),
+                    );
+                }
+            }
+
             builder.build(text)
         })
     }
+
+    /// Whether the text's language is Japanese or Chinese, which set a gap between ideographs
+    /// and Latin letters or digits.
+    fn spaces_ideographs_apart(&self) -> bool {
+        self.font_request
+            .as_ref()
+            .and_then(|font_request| font_request.language.as_deref())
+            .and_then(|tag| parley::style::Language::parse(tag).ok())
+            .is_some_and(|language| matches!(language.language(), "ja" | "zh"))
+    }
+}
+
+/// The characters that a gap follows in Japanese or Chinese text, as byte ranges into `text`:
+/// each that meets the next without a space between them, one an ideograph (Han, kana,
+/// Bopomofo) and the other a Latin-script letter or digit.
+pub(super) fn ideograph_gaps(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
+    text.char_indices().zip(text.chars().skip(1)).filter_map(|((index, before), after)| {
+        let meets = (is_ideograph(before) && is_western(after))
+            || (is_western(before) && is_ideograph(after));
+        meets.then(|| index..index + before.len_utf8())
+    })
+}
+
+/// Han characters, kana and Bopomofo, as wide as the em (half-width katakana aren't).
+fn is_ideograph(character: char) -> bool {
+    matches!(
+        character,
+        '\u{3040}'..='\u{30FF}'
+            | '\u{3100}'..='\u{312F}'
+            | '\u{31A0}'..='\u{31FF}'
+            | '\u{3400}'..='\u{4DBF}'
+            | '\u{4E00}'..='\u{9FFF}'
+            | '\u{F900}'..='\u{FAFF}'
+            | '\u{20000}'..='\u{323AF}'
+    )
+}
+
+/// Letters and digits of the scripts set in proportional "Western" type (Latin, Greek,
+/// Cyrillic and the like); not Hangul, nor the full-width forms.
+fn is_western(character: char) -> bool {
+    character.is_alphanumeric()
+        && character < '\u{2E80}'
+        && !matches!(character, '\u{1100}'..='\u{11FF}')
 }
 
 /// The line-height ratio, relative to the font size, that every shaped line gets.
@@ -283,6 +401,43 @@ std::thread_local! {
 /// before) that are as they were: the paragraph at the same index, of the same text and spans,
 /// shaped by an equal builder for the same link color. Shaping is most of what laying text out
 /// costs, so text that grows at its end, or changes in a paragraph or two, costs only those.
+fn is_code(span: &i_slint_common::styled_text::FormattedSpan) -> bool {
+    matches!(span.style, i_slint_common::styled_text::Style::Code) && !span.range.is_empty()
+}
+
+/// The text to lay `text` out from: with a U+FFFC before each piece of code, for the inline box
+/// of its left padding. The formatting moves with the text: a span starting at a code's start
+/// starts after its U+FFFC, and one ending there ends before it. Also returns where in `text`
+/// the U+FFFCs went, see [`TextParagraph::objects`].
+fn with_code_objects<'a>(
+    text: &'a str,
+    formatting: &mut [i_slint_common::styled_text::FormattedSpan],
+) -> (std::borrow::Cow<'a, str>, alloc::vec::Vec<usize>) {
+    let mut objects: alloc::vec::Vec<usize> =
+        formatting.iter().filter(|s| is_code(s)).map(|s| s.range.start).collect();
+    objects.sort_unstable();
+    objects.dedup();
+    if objects.is_empty() {
+        return (text.into(), objects);
+    }
+    let mut layout_text =
+        std::string::String::with_capacity(text.len() + objects.len() * OBJECT_REPLACEMENT_LEN);
+    let mut copied = 0;
+    for &object in &objects {
+        layout_text.push_str(&text[copied..object]);
+        layout_text.push(OBJECT_REPLACEMENT);
+        copied = object;
+    }
+    layout_text.push_str(&text[copied..]);
+    let shift =
+        |offset: usize, objects_before: usize| offset + objects_before * OBJECT_REPLACEMENT_LEN;
+    for span in formatting {
+        span.range = shift(span.range.start, objects.partition_point(|&o| o <= span.range.start))
+            ..shift(span.range.end, objects.partition_point(|&o| o < span.range.end));
+    }
+    (layout_text.into(), objects)
+}
+
 pub(super) fn create_text_paragraphs(
     layout_builder: &LayoutWithoutLineBreaksBuilder,
     font_context: &mut FontContext,
@@ -299,7 +454,7 @@ pub(super) fn create_text_paragraphs(
         |font_context: &mut FontContext,
          text: &str,
          range: std::ops::Range<usize>,
-         formatting: Vec<i_slint_common::styled_text::FormattedSpan>,
+         mut formatting: Vec<i_slint_common::styled_text::FormattedSpan>,
          links: Vec<(std::ops::Range<usize>, std::string::String)>| {
             if let Some(kept) = previous.next()
                 && kept.source.text == text
@@ -311,19 +466,22 @@ pub(super) fn create_text_paragraphs(
             #[cfg(test)]
             SHAPED_PARAGRAPHS.with(|shaped| shaped.set(shaped.get() + 1));
 
-            let code_ranges: alloc::vec::Vec<Range<usize>> = formatting
-                .iter()
-                .filter(|s| matches!(s.style, i_slint_common::styled_text::Style::Code))
-                .map(|s| s.range.clone())
-                .collect();
+            // What the paragraph is reused for next time: its formatting as given, before it
+            // moves with the U+FFFC below.
+            let source_formatting = formatting.clone();
 
-            let control_characters = text
+            let (layout_text, objects) = with_code_objects(text, &mut formatting);
+
+            let code_ranges: alloc::vec::Vec<Range<usize>> =
+                formatting.iter().filter(|s| is_code(s)).map(|s| s.range.clone()).collect();
+
+            let control_characters = layout_text
                 .char_indices()
                 .filter_map(|(index, c)| c.is_control().then_some(index))
                 .collect();
 
             let layout =
-                layout_builder.build(font_context, text, formatting.clone(), Some(link_color));
+                layout_builder.build(font_context, &layout_text, formatting, Some(link_color));
 
             TextParagraph {
                 range,
@@ -332,11 +490,12 @@ pub(super) fn create_text_paragraphs(
                 links,
                 code_ranges,
                 control_characters,
+                objects,
                 source: ParagraphSource {
                     builder: layout_builder.clone(),
                     link_color,
                     text: text.into(),
-                    formatting,
+                    formatting: source_formatting,
                 },
             }
         };
@@ -409,7 +568,11 @@ pub(super) fn paragraph_widths(
         #[cfg(test)]
         SHAPED_PARAGRAPHS.with(|shaped| shaped.set(shaped.get() + 1));
 
-        let layout = layout_builder.build(font_context, text, formatting.clone(), Some(link_color));
+        // Shaped as `create_text_paragraphs` shapes it, padding of inline code included.
+        let mut layout_formatting = formatting.clone();
+        let (layout_text, _) = with_code_objects(text, &mut layout_formatting);
+        let layout =
+            layout_builder.build(font_context, &layout_text, layout_formatting, Some(link_color));
         let content_widths = layout.calculate_content_widths();
         widths.push(ParagraphWidths {
             min: content_widths.min,
@@ -518,11 +681,42 @@ pub(super) struct TextParagraph {
     pub(super) y: PhysicalLength,
     pub(super) layout: parley::Layout<Brush>,
     pub(super) links: std::vec::Vec<(Range<usize>, std::string::String)>,
-    /// Byte ranges within the paragraph's text that carry `Style::Code`. Drawn with a
+    /// Byte ranges within the layout's text that carry `Style::Code`. Drawn with a
     /// translucent rounded background by `draw` for visual parity with common markdown
     /// renderers.
     pub(super) code_ranges: std::vec::Vec<Range<usize>>,
-    /// Ascending byte offsets of the control characters in the paragraph's text.
+    /// Ascending byte offsets of the control characters in the layout's text.
     pub(super) control_characters: std::vec::Vec<usize>,
+    /// Ascending byte offsets in the paragraph's text before which the layout's text has a
+    /// U+FFFC that isn't in the paragraph's text: the place of the inline box that pads the
+    /// code starting there. Offsets into the layout go through [`Self::layout_offset`] and
+    /// [`Self::text_offset`].
+    pub(super) objects: std::vec::Vec<usize>,
     pub(super) source: ParagraphSource,
+}
+
+impl TextParagraph {
+    /// The layout's byte offset for `offset` in the paragraph's text. An offset at the start of a
+    /// code is before the U+FFFC of its padding, so a cursor there stays outside the capsule and
+    /// a selection from there covers all of it.
+    pub(super) fn layout_offset(&self, offset: usize) -> usize {
+        offset + self.objects.partition_point(|&o| o < offset) * OBJECT_REPLACEMENT_LEN
+    }
+
+    /// The paragraph text's byte offset for `offset` in the layout's text. An offset on or right
+    /// after a U+FFFC that the layout added is the start of the code it pads.
+    pub(super) fn text_offset(&self, offset: usize) -> usize {
+        let mut added = 0;
+        for &object in &self.objects {
+            let at = object + added;
+            if offset <= at {
+                break;
+            }
+            if offset <= at + OBJECT_REPLACEMENT_LEN {
+                return object;
+            }
+            added += OBJECT_REPLACEMENT_LEN;
+        }
+        offset - added
+    }
 }

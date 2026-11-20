@@ -594,3 +594,157 @@ fn test_control_glyphs() {
         .collect::<Vec<_>>();
     assert_eq!(missing_glyphs, paragraph.control_glyphs(&line));
 }
+
+#[test]
+fn the_language_tag_is_every_paragraphs_locale() {
+    let locales = |language: Option<&str>| {
+        let font_request =
+            FontRequest { language: language.map(crate::SharedString::from), ..Default::default() };
+        let builder = super::shaping::LayoutWithoutLineBreaksBuilder::new(
+            Some(font_request),
+            None,
+            TextWrap::NoWrap,
+            None,
+            ScaleFactor::new(1.0),
+        );
+        let layout = layout_text_with_builder("直 and 骨\n誤", builder, LayoutOptions::default());
+        layout
+            .paragraphs
+            .iter()
+            .flat_map(|paragraph| paragraph.layout.styles().iter().map(|style| style.locale))
+            .collect::<HashSet<_>>()
+    };
+    let parsed = |tag| parley::style::Language::parse(tag).ok();
+    assert_eq!(locales(Some("ja")), HashSet::from([parsed("ja")]));
+    // A whole tag is accepted; the layout keeps its language, script and region.
+    assert_eq!(locales(Some("ZH-hant-tw-x-private")), HashSet::from([parsed("zh-Hant-TW")]));
+    assert_eq!(locales(Some("not a tag")), HashSet::from([None]));
+    assert_eq!(locales(None), HashSet::from([None]));
+}
+
+#[test]
+fn a_gap_follows_each_character_where_ideographs_meet_latin_letters_or_digits() {
+    let gaps = |text: &'static str| {
+        super::shaping::ideograph_gaps(text).map(|range| &text[range]).collect::<Vec<_>>()
+    };
+    assert_eq!(gaps("Rustのコードは3行"), ["t", "は", "3"]);
+    // A typed space, punctuation, full-width letters and Hangul meet without one.
+    assert_eq!(gaps("Rust の「コード」ＡＢ한글a。あᄀ"), Vec::<&str>::new());
+}
+
+#[test]
+fn japanese_and_chinese_text_sets_a_quarter_em_where_ideographs_meet_latin() {
+    const PIXEL_SIZE: f32 = 20.;
+    let width = |language: Option<&str>| {
+        let font_request = FontRequest {
+            pixel_size: Some(LogicalLength::new(PIXEL_SIZE)),
+            language: language.map(crate::SharedString::from),
+            ..Default::default()
+        };
+        let builder = super::shaping::LayoutWithoutLineBreaksBuilder::new(
+            Some(font_request),
+            None,
+            TextWrap::NoWrap,
+            None,
+            ScaleFactor::new(1.0),
+        );
+        layout_text_with_builder("aあb", builder, LayoutOptions::default()).max_width.get()
+    };
+    let untagged = width(None);
+    // Two meetings: after "a" and after "あ".
+    for language in ["ja", "zh-Hant"] {
+        assert!(
+            (width(Some(language)) - untagged - 2. * PIXEL_SIZE / 4.).abs() < 0.01,
+            "{language}: {} wide, untagged {untagged}",
+            width(Some(language)),
+        );
+    }
+    assert_eq!(width(Some("ko")), untagged);
+}
+
+fn styled_layout(markdown: &str) -> Layout {
+    let builder = super::shaping::plain_builder_for_tests();
+    let mut font_ctx = test_font_context();
+    let paragraphs = create_text_paragraphs(
+        &builder,
+        &mut font_ctx,
+        PlainOrStyledText::Styled(crate::styled_text::StyledText::from_markdown(markdown).unwrap()),
+        Color::default(),
+        Vec::new(),
+    );
+    layout(
+        &builder,
+        &mut font_ctx,
+        paragraphs,
+        ScaleFactor::new(1.0),
+        LayoutOptions::default(),
+        None,
+    )
+}
+
+#[test]
+fn inline_code_padding_is_an_object_outside_the_text() {
+    // Parley wants a U+FFFC in the text for each inline box that takes room, so the left padding
+    // of each code has one in the layout's text, but not in the paragraph's.
+    let layout = styled_layout("a `b` c `d`");
+    let paragraph = &layout.paragraphs[0];
+    assert_eq!(paragraph.range, 0.."a b c d".len());
+    assert_eq!(paragraph.objects, [2, 6]);
+    assert_eq!(paragraph.code_ranges, [5..6, 12..13]);
+    for offset in 0..=paragraph.range.len() {
+        assert_eq!(paragraph.text_offset(paragraph.layout_offset(offset)), offset);
+    }
+    // On or right after an object is the start of the code it pads.
+    assert_eq!(paragraph.text_offset(3), 2);
+    assert_eq!(paragraph.text_offset(5), 2);
+    assert_eq!(paragraph.text_offset(6), 3);
+}
+
+#[test]
+fn inline_code_cursor_positions_hit_test_back_to_their_offsets() {
+    use crate::items::TextCursorAffinity;
+
+    let text = "a `b` c `d`";
+    let layout = styled_layout(text);
+    let cursor_width = PhysicalLength::new(1.0);
+    let x_at = |offset| {
+        layout
+            .cursor_rect_for_byte_offset(offset, TextCursorAffinity::NextCharacter, cursor_width)
+            .origin
+            .x
+    };
+    let len = layout.paragraphs[0].range.len();
+    for offset in 0..=len {
+        let (hit, _) = layout.byte_offset_from_point(PhysicalPoint::new(x_at(offset), 1.));
+        assert_eq!(hit, offset, "cursor at {offset}");
+    }
+    // The left padding is a box with room, starting where the cursor before the code is.
+    let boxes: Vec<_> = layout.paragraphs[0]
+        .layout
+        .lines()
+        .flat_map(|line| line.items())
+        .filter_map(|item| match item {
+            parley::PositionedLayoutItem::InlineBox(inline_box) => Some(inline_box),
+            parley::PositionedLayoutItem::GlyphRun(_) => None,
+        })
+        .collect();
+    assert_eq!(boxes.len(), 2);
+    assert!(boxes[0].width > 1.0);
+    assert!((boxes[0].x - x_at(2)).abs() < 0.5, "{} vs {}", boxes[0].x, x_at(2));
+}
+
+#[test]
+fn content_widths_count_inline_code_padding() {
+    // Measuring and drawing shape the same text, U+FFFC before the code included, so the width a
+    // layout gives the text is the width it draws.
+    let builder = super::shaping::plain_builder_for_tests();
+    let mut font_ctx = test_font_context();
+    let styled = || {
+        PlainOrStyledText::Styled(crate::styled_text::StyledText::from_markdown("a `b` c").unwrap())
+    };
+    let widths = super::shaping::paragraph_widths(&builder, &mut font_ctx, styled(), Vec::new());
+    let paragraphs =
+        create_text_paragraphs(&builder, &mut font_ctx, styled(), Color::default(), Vec::new());
+    let shaped = paragraphs[0].layout.calculate_content_widths();
+    assert_eq!((widths[0].min, widths[0].max), (shaped.min, shaped.max));
+}
