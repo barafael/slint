@@ -284,6 +284,60 @@ fn line_height_factor_change_invalidates_cache() {
 }
 
 #[test]
+fn language_change_invalidates_cache() {
+    let window = setup();
+
+    // Fixed sizes, so a redraw can't come from a layout change; each element has a language of
+    // its own and they change one at a time, so a cache miss is that element's.
+    slint::slint! {
+        #[edition = "1.19"]
+        export component TestComponent inherits Window {
+            in property <string> text-language;
+            in property <string> styled-text-language;
+            in property <string> text-input-language;
+            Text {
+                x: 0; y: 0; width: 100px; height: 20px;
+                text: "直";
+                language: text-language;
+            }
+            StyledText {
+                x: 0; y: 30px; width: 100px; height: 20px;
+                text: @markdown("直");
+                language: styled-text-language;
+            }
+            TextInput {
+                x: 0; y: 60px; width: 100px; height: 20px;
+                text: "直";
+                language: text-input-language;
+            }
+        }
+    }
+
+    let ui = TestComponent::new().unwrap();
+    ui.show().unwrap();
+    window.draw_if_needed(|renderer| {
+        render_and_get_miss_count(renderer);
+    });
+
+    let language_setters: [(&str, fn(&TestComponent, slint::SharedString)); 3] = [
+        ("Text", TestComponent::set_text_language),
+        ("StyledText", TestComponent::set_styled_text_language),
+        ("TextInput", TestComponent::set_text_input_language),
+    ];
+    for (element, set_language) in language_setters {
+        set_language(&ui, "ja".into());
+        let mut miss_count = 0u64;
+        assert!(
+            window.draw_if_needed(|renderer| {
+                miss_count = render_and_get_miss_count(renderer);
+            }),
+            "Expected a redraw after the {element}'s language changed"
+        );
+        assert!(miss_count > 0, "Expected a cache miss after the {element}'s language changed");
+    }
+}
+
+#[test]
 fn width_dependent_line_height() {
     let window = setup();
 
