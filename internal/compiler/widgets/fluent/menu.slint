@@ -40,6 +40,16 @@ export component MenuFrame inherits MenuFrameBase {
     drop-shadow-offset-y: 8px;
     drop-shadow-blur: 16px;
     margin: 5px;
+
+    // Opens with a short fade, unfolding a little from its top edge, as WinUI's menus do.
+    property <float> opened;
+    init => {
+        self.opened = 1;
+    }
+    animate opened { duration: 150ms; easing: ease-out; }
+    opacity: self.opened;
+    transform-scale-y: 0.96 + 0.04 * self.opened;
+    transform-origin: { x: self.width / 2, y: 0 };
 }
 
 export component MenuItem {
