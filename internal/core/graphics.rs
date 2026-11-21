@@ -119,6 +119,11 @@ pub struct FontRequest {
     pub letter_spacing: Option<LogicalLength>,
     /// Whether to select an italic face of the font family.
     pub italic: bool,
+    /// The language of the text, as a BCP 47 language tag such as "ja" or "zh-Hant". It selects
+    /// the fallback fonts for characters the family lacks, and a font's glyph variants for that
+    /// language. If None, the text has no language, and the fallback fonts follow the platform's
+    /// settings.
+    pub language: Option<SharedString>,
 }
 
 #[cfg(feature = "shared-fontique")]
